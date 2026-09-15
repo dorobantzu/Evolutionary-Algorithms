@@ -1,3 +1,6 @@
 # Per-run SQLite databases are large and can be regenerated with run_all.sh;
 # the CSV logs and JSON summaries next to them are small and are committed.
 results/**/database.db
+
+# Throwaway test runs (see README: give test runs their own --out-dir)
+results/_debug/

@@ -51,6 +51,7 @@ from common import (
     TARGET_SIZES,
     HistoryWriter,
     diversity,
+    ensure_fresh,
     evaluate_genome,
     generation_row,
     random_genome,
@@ -84,6 +85,7 @@ class RunConfig:
     init_size: str = "uniform"  # "uniform" | "full"
     diversity_sample: int = 20
     out_dir: Path | None = None
+    overwrite: bool = False  # replace an existing run in the output directory
 
     @property
     def condition(self) -> str:
@@ -101,6 +103,7 @@ class RunState:
     diversity_rng: random.Random
     generation: int = 0
     distinct_parents: int = 0
+    parent_picks: int = 0
     timings: dict[str, float] = field(default_factory=dict)
 
 
@@ -137,6 +140,7 @@ def record(individuals: list[Individual], run: RunState) -> None:
             sizes=[ind.tags["size"] for ind in individuals],
             diversity_value=diversity(genomes, run.diversity_rng, cfg.diversity_sample),
             distinct_parents=run.distinct_parents if run.generation > 0 else "",
+            parent_picks=run.parent_picks if run.generation > 0 else "",
         ),
     )
 
@@ -151,11 +155,11 @@ def reproduce(population: Population, run: RunState) -> Population:
     cfg = run.config
     parents = population.alive.to_list()
     children: list[Individual] = []
-    picked: set[int] = set()
+    picks: list[int] = []  # every parent pick, in order
 
     while len(children) < cfg.pop_size:
         parent_a, parent_b = run.select(parents), run.select(parents)
-        picked.update((id(parent_a), id(parent_b)))
+        picks += [id(parent_a), id(parent_b)]
         a, b = genome_of(parent_a), genome_of(parent_b)
         if random.random() < cfg.p_crossover:
             a, b = crossover_subtree(a, b)
@@ -166,7 +170,12 @@ def reproduce(population: Population, run: RunState) -> Population:
 
     population.extend(children[: cfg.pop_size])
     run.generation += 1
-    run.distinct_parents = len(picked)
+    # Selection strength = distinct bodies among the FIRST pop_size picks. Each
+    # pick pair yields at most two kept children, so at least pop_size picks are
+    # always made; fixing the count keeps the measure independent of how many
+    # over-budget children were discarded, and identical to calibrate_k.py.
+    run.distinct_parents = len(set(picks[: cfg.pop_size]))
+    run.parent_picks = len(picks)
     return population
 
 
@@ -240,6 +249,7 @@ def run_experiment(cfg: RunConfig, extra_ops: Sequence[EAOperation] = ()) -> Pat
     """
     start = time.perf_counter()
     out = cfg.output_dir()
+    ensure_fresh(out, cfg.overwrite)
     out.mkdir(parents=True, exist_ok=True)
     save_json(out / "config.json", {**cfg.__dict__, "condition": cfg.condition})
 
@@ -297,7 +307,9 @@ def parse_args() -> RunConfig:
     parser.add_argument("--generations", type=int, default=100)
     parser.add_argument("--p-crossover", type=float, default=0.7)
     parser.add_argument("--init-size", choices=["uniform", "full"], default="uniform")
-    parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="use for test runs so they never replace final results")
+    parser.add_argument("--overwrite", action="store_true", help="replace an existing run")
     args = parser.parse_args()
     return RunConfig(
         selection=args.selection,
@@ -308,6 +320,7 @@ def parse_args() -> RunConfig:
         p_crossover=args.p_crossover,
         init_size=args.init_size,
         out_dir=args.out_dir,
+        overwrite=args.overwrite,
     )
 
 

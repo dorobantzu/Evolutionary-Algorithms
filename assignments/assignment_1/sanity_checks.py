@@ -11,10 +11,14 @@ import sys
 import tempfile
 from pathlib import Path
 
+# Third-party libraries
+import pandas as pd
+
 # Local libraries (ARIEL)
 from ariel.ec import Individual
 
 # Local scripts
+from analysis import check_consistent
 from common import TARGETS, evaluate_genome, random_genome
 from ea_tree import RunConfig, run_experiment
 from random_search import run_random_search
@@ -33,6 +37,23 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 def read_history(path: Path) -> list[dict[str, str]]:
     with path.open(encoding="utf-8") as f:
         return list(csv.DictReader(f))
+
+
+def accepted_by_analysis(data: pd.DataFrame) -> bool:
+    try:
+        check_consistent(data)
+    except SystemExit:
+        return False
+    return True
+
+
+def as_runs(*runs: tuple[str, str, Path]) -> pd.DataFrame:
+    frames = []
+    for condition, seed, out in runs:
+        frame = pd.read_csv(out / "history.csv")
+        frame["condition"], frame["seed"] = condition, seed
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
 
 
 def fake(fitness: float, dists: list[float]) -> Individual:
@@ -82,6 +103,10 @@ def main() -> None:
                   rows[-1]["evaluations"])
             check("database, best body and specialists saved",
                   all((out / f).exists() for f in ("database.db", "best_body.json", "specialists.json")))
+            later = rows[1:]
+            check("distinct parents counted among exactly pop_size picks",
+                  all(0 < int(r["distinct_parents"]) <= pop <= int(r["parent_picks"]) for r in later),
+                  str([(r["distinct_parents"], r["parent_picks"]) for r in later]))
 
         print(f"4. random search (pop {pop} x {gens} generations)")
         out = run_random_search(seed=0, pop_size=pop, generations=gens, out_dir=Path(tmp) / "random")
@@ -95,6 +120,31 @@ def main() -> None:
                                          out_dir=Path(tmp) / f"repeat_{i}")) for i in range(2)]
         same = (runs[0] / "history.csv").read_text() == (runs[1] / "history.csv").read_text()
         check("same seed gives an identical history.csv", same)
+
+        print("6. protection against mixing test runs with final results")
+        repeat = RunConfig(selection="lexicase", seed=3, pop_size=pop, generations=3, out_dir=runs[0])
+        try:
+            run_experiment(repeat)
+            refused = False
+        except SystemExit:
+            refused = True
+        check("EA refuses to overwrite an existing run", refused)
+        try:
+            run_random_search(seed=0, pop_size=pop, generations=gens, out_dir=Path(tmp) / "random")
+            refused = False
+        except SystemExit:
+            refused = True
+        check("random search refuses to overwrite an existing run", refused)
+        repeat.overwrite = True
+        run_experiment(repeat)
+        check("--overwrite replaces the run", (runs[0] / "history.csv").exists())
+
+        equal = as_runs(("tournament_k2", "seed_00", Path(tmp) / "tournament"),
+                        ("lexicase", "seed_00", Path(tmp) / "lexicase"),
+                        ("random", "seed_00", Path(tmp) / "random"))
+        check("analysis accepts runs of equal size", accepted_by_analysis(equal))
+        mixed = pd.concat([equal, as_runs(("lexicase", "seed_01", runs[0]))], ignore_index=True)
+        check("analysis rejects a shorter run mixed into the results", not accepted_by_analysis(mixed))
 
     print(f"\n{'ALL CHECKS PASSED' if not FAILURES else f'{len(FAILURES)} CHECK(S) FAILED: ' + ', '.join(FAILURES)}")
     sys.exit(1 if FAILURES else 0)

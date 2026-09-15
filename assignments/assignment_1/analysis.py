@@ -126,6 +126,23 @@ def ordered(conditions) -> list[str]:
     return sorted(set(conditions), key=lambda c: (style_of(c).rank, c))
 
 
+def check_consistent(data: pd.DataFrame) -> None:
+    """Stop if runs differ in size - e.g. a short test run left in results/."""
+    shape = data.groupby(["condition", "seed"]).agg(
+        generations=("generation", "max"), pop_size=("population_size", "first"),
+    )
+    counts = shape.value_counts()
+    if len(counts) > 1:
+        generations, pop_size = counts.idxmax()
+        odd = shape[(shape["generations"] != generations) | (shape["pop_size"] != pop_size)]
+        msg = (
+            f"runs differ in size: most have {generations} generations and population {pop_size}, "
+            f"but these do not:\n{odd.to_string()}\n"
+            "Move test runs out of the results directory (or give them their own --out-dir)."
+        )
+        raise SystemExit(msg)
+
+
 def final_generation(data: pd.DataFrame) -> pd.DataFrame:
     last = data.groupby(["condition", "seed"])["generation"].transform("max")
     return data[data["generation"] == last]
@@ -301,6 +318,7 @@ def main() -> None:
     args.figures.mkdir(parents=True, exist_ok=True)
 
     data = load_histories(args.results)
+    check_consistent(data)
     final = final_generation(data)
     seeds = final.groupby("condition")["seed"].nunique()
     print("runs found:", ", ".join(f"{c} ({seeds[c]} seeds)" for c in ordered(seeds.index)))

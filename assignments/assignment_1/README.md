@@ -43,12 +43,17 @@ K_CONTROL=30 bash assignments/assignment_1/run_all.sh
 uv run python assignments/assignment_1/analysis.py
 ```
 
-A single run, e.g. for debugging:
+A single test run. **Always give test runs their own `--out-dir`**, so they never mix with the
+final results (`analysis.py` would otherwise pick them up). The scripts refuse to replace an
+existing run unless `--overwrite` is passed.
 
 ```bash
-uv run python assignments/assignment_1/ea_tree.py --selection lexicase --seed 0
-uv run python assignments/assignment_1/ea_tree.py --selection tournament --k 2 --seed 0 --pop-size 20 --generations 10
+uv run python assignments/assignment_1/ea_tree.py --selection lexicase --seed 0 \
+    --pop-size 20 --generations 10 --out-dir assignments/assignment_1/results/_debug/lexicase
 ```
+
+To deliberately re-run the final experiments over existing results:
+`OVERWRITE=1 K_CONTROL=30 bash assignments/assignment_1/run_all.sh`
 
 ## Outputs
 
@@ -75,7 +80,8 @@ figures/
 | `best_fitness`, `mean_fitness`, `std_fitness` | Fitness = mean + std of the tree edit distance to the 5 targets (lower is better). For random search, `best_fitness` is the best found so far |
 | `best_size`, `mean_size` | Nodes per body, including the core |
 | `diversity` | Mean pairwise tree edit distance between 20 randomly sampled bodies |
-| `distinct_parents` | Number of different bodies picked as parents this generation (out of 200 picks) |
+| `distinct_parents` | Selection strength: number of different bodies among the first `pop_size` parent picks of this generation (same measure as `calibrate_k.py`; fewer = stronger selection) |
+| `parent_picks` | Total parent picks this generation; above `pop_size` when over-budget children were discarded |
 | `closest_7` … `closest_25` | Lowest distance of any body in the population to the 7- … 25-node target |
 | `best_dist_7` … `best_dist_25` | The best body's distance to each target |
 

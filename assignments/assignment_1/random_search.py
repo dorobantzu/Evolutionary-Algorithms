@@ -22,6 +22,7 @@ from common import (
     TARGET_SIZES,
     HistoryWriter,
     diversity,
+    ensure_fresh,
     evaluate_genome,
     generation_row,
     random_genome,
@@ -36,9 +37,11 @@ def run_random_search(
     generations: int = 100,
     init_size: str = "uniform",
     out_dir: Path | None = None,
+    overwrite: bool = False,
 ) -> Path:
     start = time.perf_counter()
     out = out_dir or RESULTS_DIR / "random" / f"seed_{seed:02d}"
+    ensure_fresh(out, overwrite)
     save_json(
         out / "config.json",
         {"condition": "random", "seed": seed, "pop_size": pop_size,
@@ -85,6 +88,9 @@ if __name__ == "__main__":
     parser.add_argument("--pop-size", type=int, default=100)
     parser.add_argument("--generations", type=int, default=100)
     parser.add_argument("--init-size", choices=["uniform", "full"], default="uniform")
-    parser.add_argument("--out-dir", type=Path, default=None)
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="use for test runs so they never replace final results")
+    parser.add_argument("--overwrite", action="store_true", help="replace an existing run")
     args = parser.parse_args()
-    run_random_search(args.seed, args.pop_size, args.generations, args.init_size, args.out_dir)
+    run_random_search(args.seed, args.pop_size, args.generations, args.init_size,
+                      args.out_dir, args.overwrite)

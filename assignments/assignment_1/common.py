@@ -54,7 +54,8 @@ HISTORY_COLUMNS: list[str] = [
     "best_size",
     "mean_size",
     "diversity",
-    "distinct_parents",
+    "distinct_parents",  # distinct bodies among the first pop_size parent picks
+    "parent_picks",  # total parent picks (above pop_size when children were discarded)
     *(f"closest_{s}" for s in TARGET_SIZES),  # lowest distance to each target in the population
     *(f"best_dist_{s}" for s in TARGET_SIZES),  # the best body's distance to each target
 ]
@@ -111,6 +112,7 @@ def generation_row(
     sizes: list[int],
     diversity_value: float,
     distinct_parents: int | str = "",
+    parent_picks: int | str = "",
 ) -> dict[str, Any]:
     """Build one CSV row describing a population."""
     fit = np.asarray(fitnesses)
@@ -127,6 +129,7 @@ def generation_row(
         "mean_size": float(np.mean(sizes)),
         "diversity": diversity_value,
         "distinct_parents": distinct_parents,
+        "parent_picks": parent_picks,
     }
     for j, s in enumerate(TARGET_SIZES):
         row[f"closest_{s}"] = dist[:, j].min()
@@ -149,6 +152,16 @@ class HistoryWriter:
 
     def close(self) -> None:
         self._file.close()
+
+
+def ensure_fresh(out: Path, overwrite: bool) -> None:
+    """Refuse to replace an existing run, so test runs never clobber final results."""
+    if (out / "history.csv").exists() and not overwrite:
+        msg = (
+            f"{out} already contains results. Give test runs their own --out-dir, "
+            "or pass --overwrite to replace this run."
+        )
+        raise SystemExit(msg)
 
 
 def save_json(path: Path, data: Any) -> None:

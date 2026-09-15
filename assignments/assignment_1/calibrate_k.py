@@ -1,7 +1,7 @@
 """Choose the tournament size for the matched-strength control condition.
 
-Selection strength is measured as the number of DISTINCT bodies picked when
-drawing 2 x pop_size parents (what one generation of reproduction needs).
+Selection strength is measured as the number of DISTINCT bodies among
+pop_size parent picks - the same measure ea_tree.py logs as `distinct_parents`.
 Fewer distinct parents = stronger selection.
 
 To compare selectors fairly, all of them are applied to the SAME populations:
@@ -30,8 +30,8 @@ from common import RESULTS_DIR, save_json
 from ea_tree import RunConfig, run_experiment
 from selection import Selector, lexicase, make_selector
 
-# Lexicase over only 5 targets selects very strongly (about 10 distinct parents
-# out of 200 draws in test runs), so the range must reach far beyond small k.
+# Lexicase over only 5 targets selects very strongly (in test runs, about as
+# strongly as a size-30 tournament), so the range must reach far beyond small k.
 CANDIDATE_K = [2, 5, 10, 15, 20, 25, 30, 40, 50]
 
 
@@ -40,7 +40,7 @@ def measure_selection(population: Population, selectors: dict[str, Selector],
     parents = population.alive.to_list()
     state = random.getstate()
     for name, select in selectors.items():
-        picked = {id(select(parents)) for _ in range(2 * len(parents))}
+        picked = {id(select(parents)) for _ in range(len(parents))}  # pop_size picks
         counts[name].append(len(picked))
     random.setstate(state)
     return population
@@ -60,14 +60,14 @@ def main() -> None:
     out_root = RESULTS_DIR / "_calibration"
     for seed in args.seeds:
         cfg = RunConfig(selection="lexicase", seed=seed, generations=args.generations,
-                        out_dir=out_root / f"seed_{seed}")
+                        out_dir=out_root / f"seed_{seed}", overwrite=True)  # calibration is meant to be re-run
         run_experiment(cfg, extra_ops=[EAOperation(measure_selection, selectors=selectors, counts=counts)])
 
     means = {name: float(np.mean(v)) for name, v in counts.items()}
     target = means["lexicase"]
     best_k = min(CANDIDATE_K, key=lambda k: abs(means[f"tournament_k{k}"] - target))
 
-    print("\nmean distinct parents per generation (out of 2 x pop_size draws):")
+    print("\nmean distinct parents per generation (out of pop_size picks):")
     for name, value in means.items():
         marker = "  <- matches lexicase" if name == f"tournament_k{best_k}" else ""
         print(f"  {name:15s} {value:6.1f}{marker}")
