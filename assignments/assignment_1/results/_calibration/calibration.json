@@ -1,0 +1,21 @@
+{
+  "seeds": [
+    100,
+    101,
+    102
+  ],
+  "generations": 50,
+  "mean_distinct_parents": {
+    "lexicase": 8.646666666666667,
+    "tournament_k2": 57.12,
+    "tournament_k5": 38.77333333333333,
+    "tournament_k10": 26.06,
+    "tournament_k15": 19.293333333333333,
+    "tournament_k20": 15.593333333333334,
+    "tournament_k25": 13.28,
+    "tournament_k30": 11.193333333333333,
+    "tournament_k40": 8.713333333333333,
+    "tournament_k50": 6.8
+  },
+  "chosen_k": 40
+}

@@ -1,0 +1,521 @@
+{
+  "target_7": {
+    "fitness": 15.686937976471885,
+    "size": 8,
+    "dists": {
+      "7": 5.0,
+      "11": 9.0,
+      "15": 9.0,
+      "19": 14.5,
+      "25": 18.0
+    },
+    "genotype": {
+      "nodes": {
+        "0": {
+          "type": "CORE",
+          "rotation": "DEG_0"
+        },
+        "1": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "17": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "20": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "22": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "21": {
+          "type": "HINGE",
+          "rotation": "DEG_45"
+        },
+        "23": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "2": {
+          "type": "HINGE",
+          "rotation": "DEG_90"
+        }
+      },
+      "edges": [
+        {
+          "parent": 0,
+          "child": 1,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 17,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 22,
+          "face": "FRONT"
+        },
+        {
+          "parent": 1,
+          "child": 20,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 21,
+          "face": "LEFT"
+        },
+        {
+          "parent": 17,
+          "child": 23,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 2,
+          "face": "BACK"
+        }
+      ]
+    }
+  },
+  "target_11": {
+    "fitness": 14.369870314579495,
+    "size": 9,
+    "dists": {
+      "7": 7.0,
+      "11": 8.0,
+      "15": 10.0,
+      "19": 13.0,
+      "25": 16.5
+    },
+    "genotype": {
+      "nodes": {
+        "0": {
+          "type": "CORE",
+          "rotation": "DEG_0"
+        },
+        "1": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "3": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "11": {
+          "type": "BRICK",
+          "rotation": "DEG_45"
+        },
+        "14": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "17": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "23": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "24": {
+          "type": "BRICK",
+          "rotation": "DEG_45"
+        },
+        "21": {
+          "type": "HINGE",
+          "rotation": "DEG_45"
+        }
+      },
+      "edges": [
+        {
+          "parent": 0,
+          "child": 1,
+          "face": "LEFT"
+        },
+        {
+          "parent": 3,
+          "child": 11,
+          "face": "BOTTOM"
+        },
+        {
+          "parent": 11,
+          "child": 14,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 17,
+          "face": "FRONT"
+        },
+        {
+          "parent": 17,
+          "child": 23,
+          "face": "LEFT"
+        },
+        {
+          "parent": 3,
+          "child": 24,
+          "face": "TOP"
+        },
+        {
+          "parent": 1,
+          "child": 21,
+          "face": "FRONT"
+        },
+        {
+          "parent": 0,
+          "child": 3,
+          "face": "BACK"
+        }
+      ]
+    }
+  },
+  "target_15": {
+    "fitness": 14.793237062523877,
+    "size": 10,
+    "dists": {
+      "7": 7.0,
+      "11": 10.0,
+      "15": 8.0,
+      "19": 13.5,
+      "25": 17.0
+    },
+    "genotype": {
+      "nodes": {
+        "0": {
+          "type": "CORE",
+          "rotation": "DEG_0"
+        },
+        "1": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "2": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "3": {
+          "type": "HINGE",
+          "rotation": "DEG_90"
+        },
+        "17": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "19": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "20": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "22": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "21": {
+          "type": "HINGE",
+          "rotation": "DEG_45"
+        },
+        "23": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        }
+      },
+      "edges": [
+        {
+          "parent": 0,
+          "child": 1,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 2,
+          "face": "BACK"
+        },
+        {
+          "parent": 2,
+          "child": 3,
+          "face": "TOP"
+        },
+        {
+          "parent": 0,
+          "child": 17,
+          "face": "FRONT"
+        },
+        {
+          "parent": 2,
+          "child": 19,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 22,
+          "face": "FRONT"
+        },
+        {
+          "parent": 1,
+          "child": 20,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 21,
+          "face": "LEFT"
+        },
+        {
+          "parent": 17,
+          "child": 23,
+          "face": "LEFT"
+        }
+      ]
+    }
+  },
+  "target_19": {
+    "fitness": 13.683281572999748,
+    "size": 11,
+    "dists": {
+      "7": 7.5,
+      "11": 9.5,
+      "15": 10.5,
+      "19": 12.0,
+      "25": 15.5
+    },
+    "genotype": {
+      "nodes": {
+        "0": {
+          "type": "CORE",
+          "rotation": "DEG_0"
+        },
+        "1": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "2": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "3": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "11": {
+          "type": "BRICK",
+          "rotation": "DEG_45"
+        },
+        "15": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "17": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "18": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "19": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "23": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "20": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        }
+      },
+      "edges": [
+        {
+          "parent": 0,
+          "child": 1,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 2,
+          "face": "BACK"
+        },
+        {
+          "parent": 2,
+          "child": 3,
+          "face": "TOP"
+        },
+        {
+          "parent": 3,
+          "child": 11,
+          "face": "BOTTOM"
+        },
+        {
+          "parent": 3,
+          "child": 15,
+          "face": "TOP"
+        },
+        {
+          "parent": 17,
+          "child": 18,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 17,
+          "face": "FRONT"
+        },
+        {
+          "parent": 2,
+          "child": 19,
+          "face": "FRONT"
+        },
+        {
+          "parent": 11,
+          "child": 23,
+          "face": "LEFT"
+        },
+        {
+          "parent": 1,
+          "child": 20,
+          "face": "FRONT"
+        }
+      ]
+    }
+  },
+  "target_25": {
+    "fitness": 13.288854381999831,
+    "size": 13,
+    "dists": {
+      "7": 9.5,
+      "11": 11.5,
+      "15": 9.5,
+      "19": 13.5,
+      "25": 13.5
+    },
+    "genotype": {
+      "nodes": {
+        "0": {
+          "type": "CORE",
+          "rotation": "DEG_0"
+        },
+        "1": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "2": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "3": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "11": {
+          "type": "BRICK",
+          "rotation": "DEG_45"
+        },
+        "15": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "17": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "19": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "20": {
+          "type": "BRICK",
+          "rotation": "DEG_0"
+        },
+        "22": {
+          "type": "BRICK",
+          "rotation": "DEG_90"
+        },
+        "21": {
+          "type": "HINGE",
+          "rotation": "DEG_45"
+        },
+        "23": {
+          "type": "HINGE",
+          "rotation": "DEG_0"
+        },
+        "18": {
+          "type": "HINGE",
+          "rotation": "DEG_45"
+        }
+      },
+      "edges": [
+        {
+          "parent": 0,
+          "child": 1,
+          "face": "LEFT"
+        },
+        {
+          "parent": 0,
+          "child": 2,
+          "face": "BACK"
+        },
+        {
+          "parent": 2,
+          "child": 3,
+          "face": "TOP"
+        },
+        {
+          "parent": 3,
+          "child": 11,
+          "face": "BOTTOM"
+        },
+        {
+          "parent": 3,
+          "child": 15,
+          "face": "TOP"
+        },
+        {
+          "parent": 0,
+          "child": 17,
+          "face": "FRONT"
+        },
+        {
+          "parent": 2,
+          "child": 19,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 22,
+          "face": "FRONT"
+        },
+        {
+          "parent": 1,
+          "child": 20,
+          "face": "FRONT"
+        },
+        {
+          "parent": 20,
+          "child": 21,
+          "face": "LEFT"
+        },
+        {
+          "parent": 11,
+          "child": 23,
+          "face": "LEFT"
+        },
+        {
+          "parent": 17,
+          "child": 18,
+          "face": "LEFT"
+        }
+      ]
+    }
+  }
+}

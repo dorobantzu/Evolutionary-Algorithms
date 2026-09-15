@@ -1,0 +1,13 @@
+{
+  "selection": "lexicase",
+  "k": 2,
+  "seed": 100,
+  "pop_size": 100,
+  "generations": 50,
+  "p_crossover": 0.7,
+  "init_size": "uniform",
+  "diversity_sample": 20,
+  "out_dir": "/Users/maybenzion/MSCAI/Evolutionary Computing/assignments/assignment 1/EvolutionaryComputingGroup44/assignments/assignment_1/results/_calibration/seed_100",
+  "overwrite": true,
+  "condition": "lexicase"
+}

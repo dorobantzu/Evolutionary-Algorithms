@@ -4,3 +4,7 @@ results/**/database.db
 
 # Throwaway test runs (see README: give test runs their own --out-dir)
 results/_debug/
+
+# The repository root ignores *.pdf and *.png; keep the report figures.
+!figures/*.pdf
+!figures/*.png

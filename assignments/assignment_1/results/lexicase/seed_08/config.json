@@ -1,0 +1,13 @@
+{
+  "selection": "lexicase",
+  "k": 2,
+  "seed": 8,
+  "pop_size": 100,
+  "generations": 100,
+  "p_crossover": 0.7,
+  "init_size": "uniform",
+  "diversity_sample": 20,
+  "out_dir": null,
+  "overwrite": false,
+  "condition": "lexicase"
+}
