@@ -205,7 +205,7 @@ _NDE = NeuralDevelopmentalEncoding(
 def random_nde_genotype():
     """Sample a random NDE genotype."""
     genotype = [
-        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
+        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32).tolist()  # module types
         for _ in range(3)  # types, connections, rotations
     ]
     return genotype
@@ -249,7 +249,7 @@ def random_body(
 
 def make_individual() -> Individual:
     ind = Individual()
-    ind.genotype: nx.DiGraph = random_body(genotype=GENOTYPE, num_modules=NUM_OF_MODULES)
+    ind.genotype: nx.DiGraph = random_nde_genotype()
     return ind
 # ============================================================================ #
 #  3. FITNESS
@@ -288,7 +288,10 @@ def evaluate(
     ) -> Population:
     targets = load_targets()
     for ind in population.unevaluated:
-        ind.fitness = fitness_function(ind.genotype, targets)
+        type_p, conn_p, rot_p = _NDE.forward(ind.genotype)
+        decoder = HighProbabilityDecoder(NUM_OF_MODULES)
+        body = decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+        ind.fitness = fitness_function(body, targets)
     return population
 # ============================================================================ #
 #  4. LOOKING AT A BODY
@@ -307,11 +310,9 @@ def crossover(population: Population) -> Population:
     for idx in range(0, len(parents) - 1, 2):
             p_a = parents[idx]
             p_b = parents[idx + 1]
-            og_shape, p_a_flat, p_b_flat = Crossover._load(p_a.genotype, p_b.genotype)
-            g_a, g_b = Crossover.one_point(
-                p_a_flat,
-                p_b_flat,
-            )
+
+            g_a, g_b = Crossover.one_point(p_a.genotype,p_b.genotype,)
+
             child_a = Individual()
             child_a.genotype = g_a
             child_a.tags = {"mutate": True}
@@ -426,7 +427,7 @@ def main() -> None:
             EAOperation(survivor_selection),
         ]
 
-    ea = EA(initial, ops, num_steps=config.num_steps)
+    ea = EA(initial, ops,num_steps=config.num_steps,is_maximisation=False,db_file_path=DATA / "database.db")
     ea.run()
     # uv run assignments\assignment_1\A1_template_2026.py
 
