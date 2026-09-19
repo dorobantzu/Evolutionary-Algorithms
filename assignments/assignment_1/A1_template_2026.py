@@ -23,6 +23,7 @@ of given target bodies at once.
 import random
 from pathlib import Path
 from typing import Literal
+from typing import cast
 
 # Third-party libraries
 import mujoco as mj
@@ -56,8 +57,7 @@ from ariel.ec import (
     Crossover,
     EAOperation,
     Individual,
-    IntegerMutator,
-    IntegersGenerator,
+    FloatMutator,
     Population,
     config,
 )
@@ -211,14 +211,27 @@ def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
 
     `num_modules` must match the value `_NDE` was built with (NUM_OF_MODULES).
     """
-    genotype = [
-        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
-        for _ in range(3)  # types, connections, rotations
-    ]
+    genotype = random_nde_genotype()
     type_p, conn_p, rot_p = _NDE.forward(genotype)
 
     decoder = HighProbabilityDecoder(num_modules)
     return decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+
+def random_nde_genotype():
+    """Sample a random NDE genotype and decode it into a body graph.
+
+    THIS IS THE FUNCTION YOUR EA REPLACES. The three vectors below are the
+    genotype: that is what you mutate, recombine and select on. Note this
+    function does NOT construct its own `NeuralDevelopmentalEncoding` - it
+    reuses the module-level `_NDE` instance. Do the same in your EA.
+
+    `num_modules` must match the value `_NDE` was built with (NUM_OF_MODULES).
+    """
+    genotype = [
+        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
+        for _ in range(3)  # types, connections, rotations
+    ]
+    return genotype
 
 
 def random_tree_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
@@ -231,7 +244,6 @@ def random_tree_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
     genome = random_tree(max_modules=num_modules)
     return genome.to_networkx()
 
-
 def random_body(
     genotype: GenotypeTypes = GENOTYPE,
     num_modules: int = NUM_OF_MODULES,
@@ -243,12 +255,9 @@ def random_body(
         case "tree":
             return random_tree_body(num_modules)
 
-def make_individual(
-    genotype: GenotypeTypes = GENOTYPE,
-    num_modules: int = NUM_OF_MODULES,
-    ) -> Individual:
+def make_individual() -> Individual:
     ind = Individual()
-    ind.genotype = random_body(genotype, num_modules)
+    ind.genotype = random_nde_genotype()
     return ind
 # ============================================================================ #
 #  3. FITNESS
@@ -282,11 +291,12 @@ def fitness_function(
     """
     return mean_plus_std_tree_edit_distance(body, targets)
 
-def evaluate_population(
-    population: Population,
-    targets: list[nx.DiGraph]
+def evaluate(
+    population: Population
     ) -> Population:
+    targets = load_targets()
     for ind in population.unevaluated:
+        phenotype = ind.genotype
         ind.fitness = fitness_function(ind.genotype, targets)
     return population
 # ============================================================================ #
@@ -294,7 +304,7 @@ def evaluate_population(
 # ============================================================================ #
 
 def parent_selection(population: Population) -> Population:
-    sorted = population.best(n=population.size)
+    sorted: Population = population.best(n=population.size)
     parent_count: int = population.size // 2
     for p in sorted[:parent_count]:
         p.tags = {"selected": True}
@@ -322,6 +332,22 @@ def crossover(population: Population) -> Population:
 
             population.extend([child_a, child_b])
     return population
+
+def mutate(population: Population) -> Population:
+    for ind in population.where(lambda ind: bool(ind.tags.get("mutate", False))):
+        ind.genotype = FloatMutator.uniform_reset(
+            individual=cast("list[float]", ind.genotype),
+            low=-1.0,
+            high=1.0,
+            mutation_probability=0.1,
+        )
+        ind.requires_eval = True
+    return population
+
+def survivor_selection(population: Population) -> Population:
+    """Select the survivors of the current generation."""
+    sorted: Population = population.best(n=population.size)
+    return sorted[:config.target_population_size] #only the best survive
 
 def show_body(
     body: nx.DiGraph,
@@ -399,8 +425,8 @@ def main() -> None:
     config.target_population_size = 20
     config.num_steps = 50
     
-    initial = Population([make_individual(GENOTYPE, NUM_OF_MODULES) for _ in range(config.target_population_size)])
-    population = evaluate_population(initial, targets)
+    initial = Population([make_individual() for _ in range(config.target_population_size)])
+    initial: Population = evaluate(initial)
 
     ops: list[EAOperation] = [
             EAOperation(parent_selection),
@@ -411,15 +437,19 @@ def main() -> None:
         ]
 
     ea = EA(initial, ops, num_steps=config.num_steps)
-    console.log("")
-    console.log(f"random body   : {body.number_of_nodes()} modules")
-    console.log(
-        "per-target    : "
-        + ", ".join(f"{d:.1f}" for d in distances_to_targets(body, targets)),
-    )
-    console.log(f"fitness       : {fitness:.4f}   (lower is better)")
+    ea.run()
+    # uv run assignments\assignment_1\A1_template_2026.py
 
-    show_body(body, MODE, file_name=f"random_{GENOTYPE}")
+
+    #console.log("")
+    #console.log(f"random body   : {body.number_of_nodes()} modules")
+    #console.log(
+    #    "per-target    : "
+    #    + ", ".join(f"{d:.1f}" for d in distances_to_targets(body, targets)),
+    #)
+    #console.log(f"fitness       : {fitness:.4f}   (lower is better)")
+#
+    #show_body(body, MODE, file_name=f"random_{GENOTYPE}")
 
 
 if __name__ == "__main__":
