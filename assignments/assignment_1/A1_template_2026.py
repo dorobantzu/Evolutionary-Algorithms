@@ -201,6 +201,15 @@ _NDE = NeuralDevelopmentalEncoding(
 )
 
 
+
+def random_nde_genotype():
+    """Sample a random NDE genotype."""
+    genotype = [
+        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
+        for _ in range(3)  # types, connections, rotations
+    ]
+    return genotype
+
 def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
     """Sample a random NDE genotype and decode it into a body graph.
 
@@ -216,23 +225,6 @@ def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
 
     decoder = HighProbabilityDecoder(num_modules)
     return decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
-
-def random_nde_genotype():
-    """Sample a random NDE genotype and decode it into a body graph.
-
-    THIS IS THE FUNCTION YOUR EA REPLACES. The three vectors below are the
-    genotype: that is what you mutate, recombine and select on. Note this
-    function does NOT construct its own `NeuralDevelopmentalEncoding` - it
-    reuses the module-level `_NDE` instance. Do the same in your EA.
-
-    `num_modules` must match the value `_NDE` was built with (NUM_OF_MODULES).
-    """
-    genotype = [
-        RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
-        for _ in range(3)  # types, connections, rotations
-    ]
-    return genotype
-
 
 def random_tree_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
     """Sample a random tree genotype and convert it into a body graph.
@@ -257,7 +249,7 @@ def random_body(
 
 def make_individual() -> Individual:
     ind = Individual()
-    ind.genotype = random_nde_genotype()
+    ind.genotype: nx.DiGraph = random_body(genotype=GENOTYPE, num_modules=NUM_OF_MODULES)
     return ind
 # ============================================================================ #
 #  3. FITNESS
@@ -296,7 +288,6 @@ def evaluate(
     ) -> Population:
     targets = load_targets()
     for ind in population.unevaluated:
-        phenotype = ind.genotype
         ind.fitness = fitness_function(ind.genotype, targets)
     return population
 # ============================================================================ #
@@ -308,11 +299,10 @@ def parent_selection(population: Population) -> Population:
     parent_count: int = population.size // 2
     for p in sorted[:parent_count]:
         p.tags = {"selected": True}
-
     return sorted
 
 def crossover(population: Population) -> Population:
-    parents = population.where(lambda ind: bool(ind.tags.get("selected", False)))
+    parents: Population = population.where(lambda ind: bool(ind.tags.get("selected", False)))
     # Sliding window: (p0,p1), (p1,p2), ..., (p_last,p0)
     for idx in range(0, len(parents) - 1, 2):
             p_a = parents[idx]
