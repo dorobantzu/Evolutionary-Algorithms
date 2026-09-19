@@ -51,6 +51,16 @@ from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import (
 )
 from ariel.ec.genotypes.nde import NeuralDevelopmentalEncoding
 from ariel.ec.genotypes.tree.operators import random_tree
+from ariel.ec import (
+    EA,
+    Crossover,
+    EAOperation,
+    Individual,
+    IntegerMutator,
+    IntegersGenerator,
+    Population,
+    config,
+)
 from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.video_recorder import VideoRecorder
@@ -82,7 +92,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 # --- EXPERIMENT CONSTANTS --- #
 TARGET_DIR: Path = HERE / "target_bodies"  # the bodies you must approach
 NUM_OF_MODULES: int = 20  # module budget per evolved body
-GENOTYPE: GenotypeTypes = "tree"  # "nde" | "tree" 
+GENOTYPE: GenotypeTypes = "nde"  # "nde" | "tree" 
 MODE: ViewerTypes = "frame"  # see show_body() for the options
 SPAWN_POS: list[float] = [0.0, 0.0, 0.1]
 
@@ -205,7 +215,6 @@ def random_nde_body(num_modules: int = NUM_OF_MODULES) -> nx.DiGraph:
         RNG.uniform(-1.0, 1.0, GENOTYPE_SIZE).astype(np.float32)  # module types
         for _ in range(3)  # types, connections, rotations
     ]
-
     type_p, conn_p, rot_p = _NDE.forward(genotype)
 
     decoder = HighProbabilityDecoder(num_modules)
@@ -234,7 +243,13 @@ def random_body(
         case "tree":
             return random_tree_body(num_modules)
 
-
+def make_individual(
+    genotype: GenotypeTypes = GENOTYPE,
+    num_modules: int = NUM_OF_MODULES,
+    ) -> Individual:
+    ind = Individual()
+    ind.genotype = random_body(genotype, num_modules)
+    return ind
 # ============================================================================ #
 #  3. FITNESS
 # ============================================================================ #
@@ -267,11 +282,46 @@ def fitness_function(
     """
     return mean_plus_std_tree_edit_distance(body, targets)
 
-
+def evaluate_population(
+    population: Population,
+    targets: list[nx.DiGraph]
+    ) -> Population:
+    for ind in population.unevaluated:
+        ind.fitness = fitness_function(ind.genotype, targets)
+    return population
 # ============================================================================ #
 #  4. LOOKING AT A BODY
 # ============================================================================ #
 
+def parent_selection(population: Population) -> Population:
+    sorted = population.best(n=population.size)
+    parent_count: int = population.size // 2
+    for p in sorted[:parent_count]:
+        p.tags = {"selected": True}
+
+    return sorted
+
+def crossover(population: Population) -> Population:
+    parents = population.where(lambda ind: bool(ind.tags.get("selected", False)))
+    # Sliding window: (p0,p1), (p1,p2), ..., (p_last,p0)
+    for idx in range(0, len(parents) - 1, 2):
+            p_a = parents[idx]
+            p_b = parents[idx + 1]
+            og_shape, p_a_flat, p_b_flat = Crossover._load(p_a.genotype, p_b.genotype)
+            g_a, g_b = Crossover.one_point(
+                p_a_flat,
+                p_b_flat,
+            )
+            child_a = Individual()
+            child_a.genotype = g_a
+            child_a.tags = {"mutate": True}
+    
+            child_b = Individual()
+            child_b.genotype = g_b
+            child_b.tags = {"mutate": True}
+
+            population.extend([child_a, child_b])
+    return population
 
 def show_body(
     body: nx.DiGraph,
@@ -346,9 +396,21 @@ def main() -> None:
     console.log(f"target spread : mean pairwise distance {np.mean(spread):.2f}")
 
     # --- One random body --------------------------------------------------- #
-    body = random_body(GENOTYPE, NUM_OF_MODULES)
-    fitness = fitness_function(body, targets)
+    config.target_population_size = 20
+    config.num_steps = 50
+    
+    initial = Population([make_individual(GENOTYPE, NUM_OF_MODULES) for _ in range(config.target_population_size)])
+    population = evaluate_population(initial, targets)
 
+    ops: list[EAOperation] = [
+            EAOperation(parent_selection),
+            EAOperation(crossover),
+            EAOperation(mutate),
+            EAOperation(evaluate),
+            EAOperation(survivor_selection),
+        ]
+
+    ea = EA(initial, ops, num_steps=config.num_steps)
     console.log("")
     console.log(f"random body   : {body.number_of_nodes()} modules")
     console.log(
