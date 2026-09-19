@@ -77,10 +77,16 @@ type ViewerTypes = Literal["launcher", "video", "frame", "none"]
 # network's weight initialisation uses torch's own RNG, entirely separate from
 # numpy/random. If you're using "nde", seed all THREE or your runs will not be
 # reproducible across separate script runs, even with the same seed value.
-SEED = 42
+import os
+SEED = int(os.environ.get("EA_SEED", 42))
 RNG = np.random.default_rng(SEED)
 random.seed(SEED)
 torch.manual_seed(SEED)
+
+
+# Mutation rate: change this between run batches for the two EA variants.
+# Override with EA_MUTATION_PROB=<value> to batch-run without editing this file.
+MUTATION_PROB: float = float(os.environ.get("EA_MUTATION_PROB", 0.1))
 
 # --- DATA SETUP --- #
 SCRIPT_NAME = Path(__file__).stem
@@ -298,7 +304,7 @@ def evaluate(
 # ============================================================================ #
 
 def parent_selection(population: Population) -> Population:
-    sorted: Population = population.best(n=population.size)
+    sorted: Population = population.best(n=population.size,sort="min")
     parent_count: int = population.size // 2
     for p in sorted[:parent_count]:
         p.tags = {"selected": True}
@@ -330,14 +336,14 @@ def mutate(population: Population) -> Population:
             individual=cast("list[float]", ind.genotype),
             low=-1.0,
             high=1.0,
-            mutation_probability=0.1,
+            mutation_probability=MUTATION_PROB,
         )
         ind.requires_eval = True
     return population
 
 def survivor_selection(population: Population) -> Population:
     """Select the survivors of the current generation."""
-    sorted: Population = population.best(n=population.size)
+    sorted: Population = population.best(n=population.size, sort="min")
     return sorted[:config.target_population_size] #only the best survive
 
 def show_body(
@@ -413,8 +419,8 @@ def main() -> None:
     console.log(f"target spread : mean pairwise distance {np.mean(spread):.2f}")
 
     # --- One random body --------------------------------------------------- #
-    config.target_population_size = 20
-    config.num_steps = 50
+    config.target_population_size = 50
+    config.num_steps = 100
     
     initial = Population([make_individual() for _ in range(config.target_population_size)])
     initial: Population = evaluate(initial)
@@ -427,7 +433,13 @@ def main() -> None:
             EAOperation(survivor_selection),
         ]
 
-    ea = EA(initial, ops,num_steps=config.num_steps,is_maximisation=False,db_file_path=DATA / "database.db")
+    ea = EA(
+        initial,
+        ops,
+        num_steps=config.num_steps,
+        is_maximisation=False,
+        db_file_path=DATA / f"seed{SEED}_mut{MUTATION_PROB}.db",
+    )
     ea.run()
     # uv run assignments\assignment_1\A1_template_2026.py
 
