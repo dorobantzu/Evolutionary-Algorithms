@@ -20,12 +20,15 @@ of given target bodies at once.
 
 
 # Standard library
+import csv
+import json
 import random
 from pathlib import Path
 from typing import Literal
 from typing import cast
 
 # Third-party libraries
+import matplotlib.pyplot as plt
 import mujoco as mj
 import networkx as nx
 import numpy as np
@@ -46,6 +49,7 @@ from ariel.body_phenotypes.robogen_lite.constructor import (
 )
 from ariel.body_phenotypes.robogen_lite.decoders._blueprint import (
     load_graph_from_json,
+    save_graph_as_json,
 )
 from ariel.body_phenotypes.robogen_lite.decoders.hi_prob_decoding import (
     HighProbabilityDecoder,
@@ -99,7 +103,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 TARGET_DIR: Path = HERE / "target_bodies"  # the bodies you must approach
 NUM_OF_MODULES: int = 20  # module budget per evolved body
 GENOTYPE: GenotypeTypes = "nde"  # "nde" | "tree" 
-MODE: ViewerTypes = "frame"  # see show_body() for the options
+MODE: ViewerTypes = "video"  # see show_body() for the options
 SPAWN_POS: list[float] = [0.0, 0.0, 0.1]
 
 
@@ -346,6 +350,111 @@ def survivor_selection(population: Population) -> Population:
     sorted: Population = population.best(n=population.size, sort="min")
     return sorted[:config.target_population_size] #only the best survive
 
+def random_search(pop_size: int, num_steps: int, csv_path: Path) -> list[float]:
+    """Baseline: sample `pop_size * (num_steps + 1)` random bodies, keep the best.
+
+    Same evaluation budget as the EA, chunked into equal-sized batches so the
+    best-so-far curve lines up generation-for-generation with the EA's.
+    Writes one CSV row per sampled individual (generation, fitness, genotype as
+    JSON) and returns the best-so-far fitness after each batch.
+    """
+    curve: list[float] = []
+    best = float("inf")
+    with csv_path.open("w", newline="", encoding="utf-8") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(["generation", "individual", "fitness", "genotype"])
+        for gen in range(num_steps + 1):
+            batch = evaluate(Population([make_individual() for _ in range(pop_size)]))
+            for i, ind in enumerate(batch):
+                writer.writerow([gen, i, ind.fitness, json.dumps(ind.genotype)])
+                best = min(best, ind.fitness)
+            curve.append(best)
+    return curve
+
+
+def curve_from_csv(csv_path: Path) -> list[float]:
+    """Rebuild a run's best-so-far-per-generation curve from its log."""
+    curve: list[float] = []
+    best = float("inf")
+    with csv_path.open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    for gen in sorted({int(r["generation"]) for r in rows}):
+        best = min([best, *(float(r["fitness"]) for r in rows if int(r["generation"]) == gen)])
+        curve.append(best)
+    return curve
+
+
+def reveal_best_bodies(seeds: list[int]) -> None:
+    """Decode and render the best individual logged by each random-search run.
+
+    Reads back the CSVs an earlier run wrote, takes the lowest-fitness row per
+    seed, decodes its genotype exactly as `random_nde_body` does, saves the
+    body graph as JSON and renders it. Runs no search of its own.
+
+    The decode depends on `_NDE`, whose weights come from `torch.manual_seed`
+    at import - so this only reproduces the logged body when EA_SEED matches
+    the batch that wrote the CSVs. The recomputed fitness is checked against
+    the logged one to catch exactly that.
+    """
+    targets = load_targets()
+    for seed in seeds:
+        csv_path = DATA / f"randomsearch_seed{seed}.csv"
+        with csv_path.open(newline="", encoding="utf-8") as fh:
+            best = min(csv.DictReader(fh), key=lambda row: float(row["fitness"]))
+
+        type_p, conn_p, rot_p = _NDE.forward(json.loads(best["genotype"]))
+        decoder = HighProbabilityDecoder(NUM_OF_MODULES)
+        body = decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+
+        graph_path = DATA / f"best_body_seed{seed}.json"
+        save_graph_as_json(body, graph_path)
+
+        logged, decoded = float(best["fitness"]), fitness_function(body, targets)
+        console.log(
+            f"seed {seed}: gen {best['generation']}, {body.number_of_nodes()} modules, "
+            f"logged {logged:.4f}, decoded {decoded:.4f} -> {graph_path.name}",
+        )
+        if not np.isclose(logged, decoded):
+            console.log(
+                f"  MISMATCH: _NDE differs from the batch that wrote this CSV. "
+                f"Re-run with EA_SEED set to that batch's base seed.",
+            )
+        show_body(body, MODE, file_name=f"best_body_seed{seed}")
+
+
+def summary_table(
+    results: dict[str, list[float]],
+    csv_path: Path,
+) -> str:
+    """Per-variant final-best fitness: mean, std, min, max over runs.
+
+    `results` maps a variant name to its per-run final best fitness (one entry
+    per independent seed). Writes the table as CSV and returns it formatted for
+    pasting into the report.
+    """
+    header = ["variant", "runs", "mean", "std", "min", "max"]
+    rows = [
+        [
+            name,
+            len(vals),
+            f"{np.mean(vals):.4f}",
+            f"{np.std(vals):.4f}",
+            f"{np.min(vals):.4f}",
+            f"{np.max(vals):.4f}",
+        ]
+        for name, vals in results.items()
+    ]
+
+    with csv_path.open("w", newline="", encoding="utf-8") as fh:
+        csv.writer(fh).writerows([header, *rows])
+
+    widths = [max(len(str(r[i])) for r in [header, *rows]) for i in range(len(header))]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    lines = [fmt.format(*header), "-" * (sum(widths) + 2 * (len(widths) - 1))]
+    lines += [fmt.format(*map(str, r)) for r in rows]
+    return "\n".join(lines)
+
+
 def show_body(
     body: nx.DiGraph,
     mode: ViewerTypes = MODE,
@@ -399,6 +508,7 @@ def show_body(
 
 def main() -> None:
     """Score one randomly-sampled body against the target set."""
+    
     targets = load_targets()
 
     console.log(f"encoding      : {GENOTYPE}")
@@ -418,31 +528,84 @@ def main() -> None:
     ]
     console.log(f"target spread : mean pairwise distance {np.mean(spread):.2f}")
 
-    # --- One random body --------------------------------------------------- #
-    config.target_population_size = 50
-    config.num_steps = 100
+    config.target_population_size = int(os.environ.get("EA_POP_SIZE", 50))
+    config.num_steps = int(os.environ.get("EA_NUM_STEPS", 100))
     
-    initial = Population([make_individual() for _ in range(config.target_population_size)])
-    initial: Population = evaluate(initial)
-
-    ops: list[EAOperation] = [
-            EAOperation(parent_selection),
-            EAOperation(crossover),
-            EAOperation(mutate),
-            EAOperation(evaluate),
-            EAOperation(survivor_selection),
-        ]
-
-    ea = EA(
-        initial,
-        ops,
-        num_steps=config.num_steps,
-        is_maximisation=False,
-        db_file_path=DATA / f"seed{SEED}_mut{MUTATION_PROB}.db",
-    )
-    ea.run()
+    # --- EA run (disabled while running the random-search baseline) --------- #
+    # initial = Population([make_individual() for _ in range(config.target_population_size)])
+    # initial: Population = evaluate(initial)
+    #
+    # ops: list[EAOperation] = [
+    #         EAOperation(parent_selection),
+    #         EAOperation(crossover),
+    #         EAOperation(mutate),
+    #         EAOperation(evaluate),
+    #         EAOperation(survivor_selection),
+    #     ]
+    #
+    # ea = EA(
+    #     initial,
+    #     ops,
+    #     num_steps=config.num_steps,
+    #     is_maximisation=False,
+    #     db_file_path=DATA / f"seed{SEED}_mut{MUTATION_PROB}.db",
+    # )
+    # ea.run()
+    #
+    # console.log("--- Results ---")
+    # best_solution = ea.get_solution("best", only_alive=False)
+    # console.log(f"best = {best_solution}")
+    # console.log(f"median = {ea.get_solution('median', only_alive=False)}")
+    # console.log(f"worst = {ea.get_solution('worst', only_alive=False)}")
+    #
+    # type_p, conn_p, rot_p = _NDE.forward(best_solution.genotype)
+    # decoder = HighProbabilityDecoder(NUM_OF_MODULES)
+    # best_body = decoder.probability_matrices_to_graph(type_p, conn_p, rot_p)
+    # show_body(best_body, MODE, file_name=f"best_{GENOTYPE}")
     # uv run assignments\assignment_1\A1_template_2026.py
 
+    # --- Random search baseline: ONE run, seeded by EA_SEED ----------------- #
+    # One process = one run = one seed. Repeat with a different EA_SEED per run:
+    #   $env:EA_SEED="1"; uv run assignments\assignment_1\A1_template_2026.py
+    out = DATA / f"randomsearch_seed{SEED}.csv"
+    curve = random_search(config.target_population_size, config.num_steps, out)
+    console.log(f"seed {SEED} best = {curve[-1]:.4f} -> {out}")
+
+    # This process' `_NDE` is the one that decoded this run's genotypes, so the
+    # best body can only be rendered faithfully here.
+    reveal_best_bodies([SEED])
+
+    # --- Aggregate over every seed run so far ------------------------------- #
+    seed_curves = {
+        int(p.stem.removeprefix("randomsearch_seed")): curve_from_csv(p)
+        for p in sorted(DATA.glob("randomsearch_seed*.csv"))
+    }
+    curves = np.array([seed_curves[s] for s in sorted(seed_curves)])
+    mean, std = curves.mean(axis=0), curves.std(axis=0)
+    gens = np.arange(curves.shape[1])
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(gens, mean, label="random search (best-so-far)")
+    plt.fill_between(gens, mean - std, mean + std, alpha=0.25)
+    plt.xlabel("generation")
+    plt.ylabel("fitness (lower is better)")
+    plt.title(f"Random search baseline, mean ± std over {len(curves)} runs")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plot_path = DATA / "randomsearch_curve.png"
+    plt.savefig(plot_path, dpi=150, bbox_inches="tight")
+
+    # Add EA variants here as {"EA (mut=0.1)": [per-run final best, ...], ...}
+    # once the EA block above is re-enabled.
+    table_path = DATA / "summary_stats.csv"
+    table = summary_table({"random search": [c[-1] for c in curves]}, table_path)
+
+    console.log("--- Random search baseline ---")
+    console.log(f"evaluations/run : {config.target_population_size * (config.num_steps + 1)}")
+    console.log(f"seeds           : {sorted(seed_curves)}")
+    console.log(f"plot            : {plot_path}")
+    console.log(f"table           : {table_path}")
+    print("\n" + table + "\n")
 
     #console.log("")
     #console.log(f"random body   : {body.number_of_nodes()} modules")
@@ -452,7 +615,6 @@ def main() -> None:
     #)
     #console.log(f"fitness       : {fitness:.4f}   (lower is better)")
 #
-    #show_body(body, MODE, file_name=f"random_{GENOTYPE}")
 
 
 if __name__ == "__main__":
