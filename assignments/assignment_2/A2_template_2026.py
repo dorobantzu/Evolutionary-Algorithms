@@ -43,6 +43,7 @@ from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
+from ariel.ec import EA, EAOperation, Individual, Population
 
 # Type aliases
 type ViewerTypes = Literal["launcher", "video", "simple", "frame", "no_control"]
@@ -172,6 +173,14 @@ def nn_controller(
     # --- RESCALE TO THE HINGE RANGE --------------------------------------- #
     return outputs * (np.pi / 2)  # in [-pi/2, pi/2]
 
+def make_individual(weights: list[npt.NDArray[np.float64]]) -> Individual:
+    """Create an Individual from a list of weight matrices.
+
+    This is a convenience function for your EA. It is not used in the demo.
+    """
+    ind = Individual()
+    ind.genotype = weights
+    return ind
 
 def make_random_weights(
     input_size: int,
