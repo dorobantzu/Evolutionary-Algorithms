@@ -13,7 +13,20 @@ if TYPE_CHECKING:
 # -- Module-level RNG (shared across generators, mutators, crossover) ----------
 SEED: int = 42
 _rng: Generator = np.random.default_rng(SEED)
+def set_seed(seed: int) -> None:
+    """
+    Reseed the shared RNG used by every generator, mutator, and crossover
+    operator in ``ariel.ec``.
 
+    Parameters
+    ----------
+    seed : int
+        The new seed to reseed the shared RNG with.
+    """
+    global SEED  # noqa: PLW0603
+    SEED = seed
+    # This Generator is shared by reference throughout ariel.ec.
+    _rng.bit_generator.state = np.random.default_rng(seed).bit_generator.state
 type Integers = Sequence[int]
 type Floats = Sequence[float]
 

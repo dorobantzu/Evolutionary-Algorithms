@@ -11,6 +11,7 @@ from ariel.ec.generators import (
     IntegerMutator,
     Integers,
     IntegersGenerator,
+    set_seed,
 )
 from ariel.ec.individual import (
     Individual,
@@ -56,4 +57,5 @@ __all__: list[str] = [
     # Population
     "Population",
     "config",
+    "set_seed",
 ]

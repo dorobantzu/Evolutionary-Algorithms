@@ -25,6 +25,7 @@ a rendered video, or a single frame.
 """
 
 # Standard library
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -43,7 +44,16 @@ from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
-from ariel.ec import EA, EAOperation, Individual, Population
+from ariel.ec import (
+    EA,
+    Crossover,
+    EAOperation,
+    Individual,
+    IntegerMutator,
+    IntegersGenerator,
+    Population,
+    config,
+)
 
 # Type aliases
 type ViewerTypes = Literal["launcher", "video", "simple", "frame", "no_control"]
@@ -70,6 +80,7 @@ SPAWN_POS: list[float] = [0.0, 0.0, 0.1]  # where the robot starts
 TARGET_POSITION: list[float] = [2.0, 0.0, 0.1]  # where it should end up
 SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
 MODE: ViewerTypes = "launcher"  # see run_experiment() for the options
+SCENARIO = os.environ.get("SCENARIO", "random")
 
 
 # ============================================================================ #
@@ -194,7 +205,20 @@ def make_random_weights(
     Note the total parameter count printed by main(): that is the length of the
     flat vector an individual's genotype has to encode. Reshaping a flat
     genotype back into these matrices is on you.
+    Example output:
+    [
+            array([[ 0.29, -0.13,  0.55, ...],   # shape (8, 6)
+                   [-0.42,  0.11,  0.03, ...],
+                   ...
+                   [ 0.18, -0.07,  0.24, ...]]),  # 8 rows × 6 cols
+
+            array([[ 0.31, -0.22, -0.09,  0.14],  # shape (6, 4)
+                   [-0.05,  0.38,  0.17, -0.29],
+                   ...
+                   [ 0.09, -0.16,  0.21,  0.04]]),  # 6 rows × 4 cols
+        ]
     """
+        
     return [
         RNG.normal(scale=0.5, size=(input_size, HIDDEN_SIZE)),
         RNG.normal(scale=0.5, size=(HIDDEN_SIZE, output_size)),
@@ -244,7 +268,9 @@ def fitness_function(
 # ============================================================================ #
 
 
-def run_experiment(mode: ViewerTypes = MODE) -> float:
+
+
+def run_experiment(mode: ViewerTypes = MODE, weights: list[npt.NDArray[np.float64]] = None) -> float:
     """Set up the world, run one simulation, and return the fitness.
 
     This is the function your EA calls once per individual, with `mode` set
@@ -282,7 +308,8 @@ def run_experiment(mode: ViewerTypes = MODE) -> float:
     input_size = len(data.qpos)
     output_size = model.nu
 
-    weights = make_random_weights(input_size, output_size)
+    if weights is None:
+        weights = make_random_weights(input_size, output_size)
 
     def control_callback(m: mj.MjModel, d: mj.MjData) -> None:
         """Compute and apply actions; MuJoCo calls this every physics step."""
@@ -367,7 +394,22 @@ def main() -> None:
     console.log(f"controller outputs (model.nu)      : {output_size}")
     console.log(f"genotype length (total weights)    : {num_weights}")
 
-    run_experiment(MODE)
+    config.target_population_size = 5
+    match SCENARIO:
+        case "random":
+            for i in range(config.target_population_size):
+                console.log(f"--- RANDOM RUN {i + 1} ---")
+                run_experiment(MODE)
+        case "ea1":
+            console.log("EA1 scenario not implemented yet.")
+        case "ea2":
+            console.log("EA2 scenario not implemented yet.")
+        case _:
+            raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2'}")
+    
+    #uv run assignments\assignment_2\A2_template_2026.py
+    
+
 
 
 if __name__ == "__main__":
