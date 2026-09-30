@@ -28,6 +28,7 @@ a rendered video, or a single frame.
 import os
 from pathlib import Path
 from typing import Literal
+from typing import cast
 
 # Third-party libraries
 import mujoco as mj
@@ -40,6 +41,7 @@ from ariel import console
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
 from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 from ariel.ec import set_seed
+from ariel.ec.generators import FloatMutator
 from ariel.simulation.environments import SimpleFlatWorld
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
@@ -369,6 +371,70 @@ def run_experiment(mode: ViewerTypes = MODE, weights: list[npt.NDArray[np.float6
 
     return fitness
 
+def parent_selection(population: Population) -> Population:
+    '''Implements binary tournament selection to select parents for crossover.'''
+    shuffled = population.shuffle()
+    for idx in range(0, len(shuffled) - 1, 2):
+        ind_a = shuffled[idx]
+        ind_b = shuffled[idx + 1]
+        if ind_a.fitness_ is not None and ind_b.fitness_ is not None:
+            if ind_a.fitness_ >= ind_b.fitness_:
+                ind_a.tags = {"selected": True}
+                ind_b.tags = {"selected": False}
+            else:
+                ind_a.tags = {"selected": False}
+                ind_b.tags = {"selected": True}
+
+    return shuffled
+    
+def crossover(population: Population) -> Population:
+    '''Implements uniform crossover to generate offspring from selected parents.'''
+    #crossover probability placeholder. Justify from literature
+    #TODO implement crossover probability in the future
+    crossover_prob: float = 1.0
+    selected_parents = population.where(lambda ind: bool(ind.tags.get("selected", False)))
+    for idx in range(0, len(selected_parents) - 1, 2):
+        parent_a = selected_parents[idx]
+        parent_b = selected_parents[idx + 1]
+        g_a = parent_a.genotype
+        g_b = parent_b.genotype
+        child_a = Individual()
+        child_b = Individual()
+        for i in range(len(g_a)):
+            if np.random.rand() < 0.5:
+                child_a.genotype.append(g_a[i])
+                child_b.genotype.append(g_b[i])
+            else:
+                child_a.genotype.append(g_b[i])
+                child_b.genotype.append(g_a[i])
+        child_a.tags = {"mutate": True}
+        child_b.tags = {"mutate": True}
+        population.extend([child_a, child_b])
+
+def mutate(population: Population) -> Population:
+    '''Implements float mutation to introduce variation in the offspring.'''
+    mutation_prob: float = 0.1  # mutation probability placeholder
+    for ind in population.where(lambda ind: bool(ind.tags.get("mutate", False))):
+        for gene in ind.genotype:
+            if np.random.rand() < mutation_prob:  
+                gene = np.random.normal(0, 0.1)  # Gaussian mutation
+        ind.requires_eval = True
+    return population
+
+def evaluate(population: Population) -> Population:
+    '''Evaluates the fitness of individuals in the population.'''
+    for ind in population.unevaluated:
+        fitness = run_experiment(MODE, ind.genotype)
+        ind.fitness = fitness
+    return population
+
+def survivor_selection(population: Population) -> Population:
+    '''Selects the best individuals to survive to the next generation.'''
+    # Sort the population by fitness (lower is better)
+    sorted_population = sorted(population.alive, key=lambda ind: ind.fitness_)
+    # Keep the top N individuals based on target population size
+    survivors = sorted_population[:config.target_population_size]
+    return Population(survivors)
 
 def main() -> None:
     """Run a single demo evaluation with a randomly-weighted controller."""
@@ -401,7 +467,17 @@ def main() -> None:
                 console.log(f"--- RANDOM RUN {i + 1} ---")
                 run_experiment(MODE)
         case "ea1":
-            console.log("EA1 scenario not implemented yet.")
+            population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
+            #init eval
+            for ind in population:
+                run_experiment(MODE, ind.genotype)
+            ops: list[EAOperation] = [
+                EAOperation(parent_selection),
+                EAOperation(crossover),
+                EAOperation(mutate),
+                EAOperation(evaluate),
+                EAOperation(survivor_selection),
+            ]
         case "ea2":
             console.log("EA2 scenario not implemented yet.")
         case _:
