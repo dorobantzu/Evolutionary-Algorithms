@@ -26,6 +26,7 @@ a rendered video, or a single frame.
 
 # Standard library
 import os
+import random
 from pathlib import Path
 from typing import Literal
 from typing import cast
@@ -48,13 +49,11 @@ from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
 from ariel.ec import (
     EA,
-    Crossover,
     EAOperation,
     Individual,
-    IntegerMutator,
-    IntegersGenerator,
     Population,
     config,
+    Crossover
 )
 
 # Type aliases
@@ -63,8 +62,9 @@ type ViewerTypes = Literal["launcher", "video", "simple", "frame", "no_control"]
 # --- RANDOM GENERATOR SETUP --- #
 # Fix the seed while you are debugging.
 # Report results over MULTIPLE seeds.
-SEED = 42
+SEED = int(os.environ.get("SEED", 42))
 RNG = np.random.default_rng(SEED)
+random.seed(SEED)  # Population.shuffle() uses stdlib random; set_seed() doesn't cover it
 
 # ariel.ec's own generators/mutators/crossover draw from a separate,
 # package-level RNG. Reseed it too if you build your EA on ariel.ec,
@@ -81,7 +81,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 SPAWN_POS: list[float] = [0.0, 0.0, 0.1]  # where the robot starts
 TARGET_POSITION: list[float] = [2.0, 0.0, 0.1]  # where it should end up
 SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
-MODE: ViewerTypes = "launcher"  # see run_experiment() for the options
+MODE: ViewerTypes = "simple"  # see run_experiment() for the options
 SCENARIO = os.environ.get("SCENARIO", "random")
 
 
@@ -378,20 +378,17 @@ def parent_selection(population: Population) -> Population:
         ind_a = shuffled[idx]
         ind_b = shuffled[idx + 1]
         if ind_a.fitness_ is not None and ind_b.fitness_ is not None:
-            if ind_a.fitness_ >= ind_b.fitness_:
+            if ind_a.fitness_ <= ind_b.fitness_:
                 ind_a.tags = {"selected": True}
                 ind_b.tags = {"selected": False}
             else:
                 ind_a.tags = {"selected": False}
                 ind_b.tags = {"selected": True}
-
+    #parent count = population size / 2?
     return shuffled
     
 def crossover(population: Population) -> Population:
     '''Implements uniform crossover to generate offspring from selected parents.'''
-    #crossover probability placeholder. Justify from literature
-    #TODO implement crossover probability in the future
-    crossover_prob: float = 1.0
     selected_parents = population.where(lambda ind: bool(ind.tags.get("selected", False)))
     for idx in range(0, len(selected_parents) - 1, 2):
         parent_a = selected_parents[idx]
@@ -400,24 +397,25 @@ def crossover(population: Population) -> Population:
         g_b = parent_b.genotype
         child_a = Individual()
         child_b = Individual()
-        for i in range(len(g_a)):
-            if np.random.rand() < 0.5:
-                child_a.genotype.append(g_a[i])
-                child_b.genotype.append(g_b[i])
-            else:
-                child_a.genotype.append(g_b[i])
-                child_b.genotype.append(g_a[i])
+        child_a.genotype, child_b.genotype = Crossover.uniform(
+            cast("list[float]", g_a),
+            cast("list[float]", g_b),
+            swap_probability=1.0 #TODO change, justfiy from literature
+        )
         child_a.tags = {"mutate": True}
         child_b.tags = {"mutate": True}
         population.extend([child_a, child_b])
+    return population
 
 def mutate(population: Population) -> Population:
     '''Implements float mutation to introduce variation in the offspring.'''
-    mutation_prob: float = 0.1  # mutation probability placeholder
     for ind in population.where(lambda ind: bool(ind.tags.get("mutate", False))):
-        for gene in ind.genotype:
-            if np.random.rand() < mutation_prob:  
-                gene = np.random.normal(0, 0.1)  # Gaussian mutation
+        #TODO why gaussian? justify from literature
+        ind.genotype = FloatMutator.gaussian(
+            individual=cast("list[float]", ind.genotype),
+            std=0.2, #TODO why std 0.2? justify from literature
+            mutation_probability=0.2
+        )
         ind.requires_eval = True
     return population
 
@@ -428,13 +426,20 @@ def evaluate(population: Population) -> Population:
         ind.fitness = fitness
     return population
 
-def survivor_selection(population: Population) -> Population:
+def survivor_selection_elitism(population: Population) -> Population:
     '''Selects the best individuals to survive to the next generation.'''
-    # Sort the population by fitness (lower is better)
-    sorted_population = sorted(population.alive, key=lambda ind: ind.fitness_)
-    # Keep the top N individuals based on target population size
-    survivors = sorted_population[:config.target_population_size]
-    return Population(survivors)
+    sorted = population.alive.best(sort="min", attribute="fitness_", n=population.size)
+    for ind in sorted[config.target_population_size:]:
+        ind.alive = False
+    return sorted
+
+def survivor_selection_total_replace(population: Population) -> Population:
+    '''Selects the best individuals to survive to the next generation.'''
+    parents = population.where(lambda ind: ind.tags.get("selected", False))
+    for p in parents:
+        p.alive = False
+    assert population.alive.size == config.target_population_size
+    return population
 
 def main() -> None:
     """Run a single demo evaluation with a randomly-weighted controller."""
@@ -469,17 +474,31 @@ def main() -> None:
         case "ea1":
             population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
             #init eval
-            for ind in population:
-                run_experiment(MODE, ind.genotype)
+            initial: Population = evaluate(population)
             ops: list[EAOperation] = [
                 EAOperation(parent_selection),
                 EAOperation(crossover),
                 EAOperation(mutate),
                 EAOperation(evaluate),
-                EAOperation(survivor_selection),
+                EAOperation(survivor_selection_elitism),
             ]
+            ea = EA(initial, ops, num_steps=50) #justfiy num_steps from literature, 50 is arbitrary
+            ea.run()
         case "ea2":
-            console.log("EA2 scenario not implemented yet.")
+            population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
+            #init eval
+            initial: Population = evaluate(population)
+            ops: list[EAOperation] = [
+                EAOperation(parent_selection),
+                EAOperation(crossover),
+                EAOperation(mutate),
+                EAOperation(evaluate),
+                EAOperation(survivor_selection_total_replace),
+            ]
+            #justfiy num_steps from literature, 50 is arbitrary
+            ea = EA(initial, ops, num_steps=50)
+            ea.run()
+
         case _:
             raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2'}")
     
