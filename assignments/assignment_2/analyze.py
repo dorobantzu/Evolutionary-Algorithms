@@ -103,17 +103,81 @@ def main() -> None:
         print(f"  across seeds: final-generation best {final_best.mean():.4f} ± {std(final_best):.4f}, "
               f"best ever {overall_best.mean():.4f} ± {std(overall_best):.4f}")
 
-    if not runs:
+    if runs:
+        csv_path = DATA / f"metrics_{SCENARIO}.csv"
+        with csv_path.open("w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(csv_rows[0]))
+            writer.writeheader()
+            writer.writerows(csv_rows)
+        print(f"\nper-generation metrics -> {csv_path}")
+        plot(runs)
+
+    runtimes()
+
+
+def runtimes() -> None:
+    """Summarise __data__/runtimes.csv and draw a boxplot of run durations per scenario."""
+    path = DATA / "runtimes.csv"
+    if not path.exists():
+        print(f"\n[runtime] {path} not found, skipping")
+        return
+    with path.open(newline="") as fh:
+        rows = [r for r in csv.DictReader(fh) if r["scenario"] in SELECTED]
+    by_scenario = {s: [r for r in rows if r["scenario"] == s] for s in SELECTED}
+    by_scenario = {s: rs for s, rs in by_scenario.items() if rs}
+    if not by_scenario:
+        print("\n[runtime] no runtimes for the selected scenario(s), skipping")
         return
 
-    csv_path = DATA / f"metrics_{SCENARIO}.csv"
-    with csv_path.open("w", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(csv_rows[0]))
-        writer.writeheader()
-        writer.writerows(csv_rows)
-    print(f"\nper-generation metrics -> {csv_path}")
+    print("\n=== runtime (seconds) ===")
+    print(f"{'scenario':>9} {'runs':>5} {'mean':>9} {'std':>9} {'min':>9} {'max':>9}  machines")
+    for scenario, rs in by_scenario.items():
+        d = np.array([float(r["duration_s"]) for r in rs])
+        machines = sorted({r["machine"] for r in rs})
+        print(f"{scenario:>9} {d.size:>5} {d.mean():>9.1f} {std(d):>9.1f} {d.min():>9.1f} {d.max():>9.1f}  {', '.join(machines)}")
 
-    plot(runs)
+    machines = sorted({r["machine"] for r in rows})
+    markers = dict(zip(machines, "osD^v<>p"))
+    rng = np.random.default_rng(0)  # fixed jitter so the plot is reproducible
+
+    fig, ax = plt.subplots(figsize=(1.8 + 1.6 * len(by_scenario), 4.2), facecolor=SURFACE)
+    ax.set_facecolor(SURFACE)
+    names = list(by_scenario)
+    data = [[float(r["duration_s"]) for r in by_scenario[s]] for s in names]
+    box = ax.boxplot(data, widths=0.5, patch_artist=True, showfliers=False,
+                     medianprops={"color": INK, "linewidth": 2},
+                     whiskerprops={"color": MUTED}, capprops={"color": MUTED})
+    for patch, scenario in zip(box["boxes"], names):
+        patch.set_facecolor(STYLE[scenario]["color"] + "33")
+        patch.set_edgecolor(STYLE[scenario]["color"])
+
+    # Every run as a dot, so a box drawn from only a few runs is not mistaken for more data.
+    for i, scenario in enumerate(names, start=1):
+        for r in by_scenario[scenario]:
+            ax.scatter(i + rng.uniform(-0.12, 0.12), float(r["duration_s"]), s=36,
+                       marker=markers[r["machine"]], color=STYLE[scenario]["color"],
+                       edgecolor=SURFACE, linewidth=1.5, zorder=3)
+    for machine in machines:
+        ax.scatter([], [], marker=markers[machine], color=MUTED, label=machine)
+
+    ax.set_xticks(range(1, len(names) + 1), [f"{s}\n(n={len(by_scenario[s])})" for s in names])
+    ax.set_title("Run duration", loc="left", fontsize=11, color=INK)
+    ax.set_ylabel("wall-clock time (s)", color=MUTED)
+    ax.grid(axis="y", color=GRID, linewidth=0.8)
+    ax.tick_params(colors=MUTED)
+    ax.set_ylim(bottom=0)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.legend(title="machine", frameon=False, fontsize=8, title_fontsize=8, labelcolor=INK)
+    fig.tight_layout()
+
+    out_dir = DATA / "plots"
+    out_dir.mkdir(exist_ok=True)
+    out = out_dir / f"runtime_{SCENARIO}.png"
+    fig.savefig(out, dpi=200)
+    print(f"plot -> {out}")
 
 
 def plot(runs: dict[str, dict[int, list[dict]]]) -> None:

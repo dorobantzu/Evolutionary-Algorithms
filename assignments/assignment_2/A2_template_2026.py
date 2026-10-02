@@ -25,8 +25,11 @@ a rendered video, or a single frame.
 """
 
 # Standard library
+import csv
 import os
 import random
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 from typing import cast
@@ -84,6 +87,13 @@ TARGET_POSITION: list[float] = [2.0, 0.0, 0.1]  # where it should end up
 SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
 MODE: ViewerTypes = "simple"  # see run_experiment() for the options
 SCENARIO = os.environ.get("SCENARIO", "random")
+
+# Machine the run happens on, saved with each runtime. Required, no default.
+# Valid values (add new machines to MACHINES):
+#   MACHINE=atilla_linux
+#   MACHINE=atilla_windows
+MACHINES: tuple[str, ...] = ("atilla_linux", "atilla_windows")
+MACHINE = os.environ.get("MACHINE")
 
 
 # ============================================================================ #
@@ -424,7 +434,7 @@ def crossover(population: Population) -> Population:
             cast("list[float]", g_b),
             swap_probability=0.5 #TODO change if needed, justfiy from literature
         )
-        child_a.tags = {"mutate": True}
+        child_a.tags = {"mutate": True} #ONLY CHILDREN GET MUTATED?
         child_b.tags = {"mutate": True}
         population.extend([child_a, child_b])
     return population
@@ -439,11 +449,16 @@ def mutate(population: Population) -> Population:
             mutation_probability=0.2 # TODO why mutation probability 0.2? justify from literature
         )
         ind.requires_eval = True
+        ind.tags = {"mutate": False} #reset mutate tag after mutation
     return population
+
+evaluation_count: int = 0  # simulations run so far, saved with the runtime
 
 def evaluate(population: Population) -> Population:
     '''Evaluates the fitness of individuals in the population.'''
+    global evaluation_count
     for ind in population.unevaluated:
+        evaluation_count += 1
         assert isinstance(ind.genotype, list) and all(isinstance(g, float) for g in ind.genotype), "Genotype must be a list of floats."
         fitness = run_experiment(MODE, ind.genotype)
         ind.fitness = fitness
@@ -465,8 +480,49 @@ def survivor_selection_total_replace(population: Population) -> Population:
     assert population.alive.size == config.target_population_size
     return population
 
+def save_runtime(start: datetime, end: datetime, duration_s: float) -> None:
+    '''Write this run's timing to __data__/runtimes.csv, replacing an earlier row for the same scenario, seed and machine.'''
+    path = config.output_folder / "runtimes.csv"
+    row = {
+        "scenario": SCENARIO,
+        "seed": str(SEED),
+        "machine": MACHINE,
+        "population_size": str(config.target_population_size),
+        "generations": str(0 if SCENARIO == "random" else config.num_steps),
+        "evaluations": str(evaluation_count),
+        "start": start.isoformat(timespec="seconds"),
+        "end": end.isoformat(timespec="seconds"),
+        "duration_s": f"{duration_s:.3f}",
+    }
+    rows: list[dict[str, str]] = []
+    if path.exists():
+        with path.open(newline="") as fh:
+            rows = [
+                r for r in csv.DictReader(fh)
+                if (r["scenario"], r["seed"], r["machine"]) != (row["scenario"], row["seed"], row["machine"])
+            ]
+    rows.append(row)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(row))
+        writer.writeheader()
+        writer.writerows(rows)
+    console.log(f"runtime: {duration_s:.1f} s ({start:%H:%M:%S} -> {end:%H:%M:%S}) saved to {path}")
+
+# IMPORTANT: DO NOT RUN SCENARIOS IN PARALLEL WHEN MEASURING RUNTIME. PARALLEL RUNS
+# SHARE THE CPU AND SLOW EACH OTHER DOWN, SO THEIR RUNTIMES ARE NOT COMPARABLE.
+# RUN THEM ONE AFTER ANOTHER, OR STATE IN THE REPORT WHICH RUNS WERE PARALLEL.
 def main() -> None:
     """Run a single demo evaluation with a randomly-weighted controller."""
+    if MACHINE not in MACHINES:
+        raise SystemExit(
+            f"MACHINE is {'not set' if MACHINE is None else f'invalid ({MACHINE!r})'}. "
+            f"Set it to one of {MACHINES}, e.g.:\n"
+            f"  MACHINE=atilla_linux SCENARIO={SCENARIO} uv run assignments/assignment_2/A2_template_2026.py"
+        )
+    start = datetime.now()
+    t0 = time.perf_counter()
+
     # A quick look at the size of the problem you are about to search.
     mj.set_mjcb_control(None)
     world = build_world()
@@ -490,7 +546,7 @@ def main() -> None:
     console.log(f"genotype length (total weights)    : {num_weights}")
 
     # Test-sized values; raise to real numbers once the pipeline works.
-    config.target_population_size = 20
+    config.target_population_size = 4
     config.num_steps = 3
     config.is_maximisation = False
     config.db_file_name = f"{SCENARIO}_seed{SEED}.db"
@@ -531,10 +587,12 @@ def main() -> None:
 
         case _:
             raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2'}")
-    
-    # SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
-    # SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
-    # SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
+
+    save_runtime(start, datetime.now(), time.perf_counter() - t0)
+
+    # MACHINE=atilla_linux SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_linux SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_linux SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
     
 
 
