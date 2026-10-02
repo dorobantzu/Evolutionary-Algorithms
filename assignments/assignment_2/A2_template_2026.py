@@ -327,7 +327,7 @@ def run_experiment(mode: ViewerTypes = MODE, genotype: list[float] | None = None
     input_size: int = len(data.qpos)
     output_size: int = model.nu
 
-    if genotype is None:
+    if genotype is None: #random scenario doesn't pass genotype, so generate random weights for that case
         weights = make_random_weights(input_size, output_size)
     else:
         weights = decode_genotype(genotype, input_size, output_size)
