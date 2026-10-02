@@ -192,8 +192,23 @@ def make_individual(weights: list[npt.NDArray[np.float64]]) -> Individual:
     This is a convenience function for your EA. It is not used in the demo.
     """
     ind = Individual()
-    ind.genotype = weights
+    ind.genotype = np.concatenate([w.ravel() for w in weights]).tolist()
     return ind
+
+def decode_genotype(
+    genotype: list[float],
+    input_size: int,
+    output_size: int,
+) -> list[npt.NDArray[np.float64]]:
+    """Reshape a flat genotype back into the [w1, w2] matrices of `nn_controller`."""
+    flat = np.asarray(genotype, dtype=np.float64)
+    split = input_size * HIDDEN_SIZE
+    expected = split + HIDDEN_SIZE * output_size
+    if flat.size != expected:
+        raise ValueError(f"genotype length {flat.size} != expected {expected}")
+    w1 = flat[:split].reshape(input_size, HIDDEN_SIZE)
+    w2 = flat[split:].reshape(HIDDEN_SIZE, output_size)
+    return [w1, w2]
 
 def make_random_weights(
     input_size: int,
@@ -272,7 +287,7 @@ def fitness_function(
 
 
 
-def run_experiment(mode: ViewerTypes = MODE, weights: list[npt.NDArray[np.float64]] = None) -> float:
+def run_experiment(mode: ViewerTypes = MODE, genotype: list[float] | None = None) -> float:
     """Set up the world, run one simulation, and return the fitness.
 
     This is the function your EA calls once per individual, with `mode` set
@@ -310,8 +325,10 @@ def run_experiment(mode: ViewerTypes = MODE, weights: list[npt.NDArray[np.float6
     input_size = len(data.qpos)
     output_size = model.nu
 
-    if weights is None:
+    if genotype is None:
         weights = make_random_weights(input_size, output_size)
+    else:
+        weights = decode_genotype(genotype, input_size, output_size)
 
     def control_callback(m: mj.MjModel, d: mj.MjData) -> None:
         """Compute and apply actions; MuJoCo calls this every physics step."""
@@ -400,7 +417,7 @@ def crossover(population: Population) -> Population:
         child_a.genotype, child_b.genotype = Crossover.uniform(
             cast("list[float]", g_a),
             cast("list[float]", g_b),
-            swap_probability=1.0 #TODO change, justfiy from literature
+            swap_probability=0.5 #TODO change, justfiy from literature
         )
         child_a.tags = {"mutate": True}
         child_b.tags = {"mutate": True}
@@ -428,10 +445,10 @@ def evaluate(population: Population) -> Population:
 
 def survivor_selection_elitism(population: Population) -> Population:
     '''Selects the best individuals to survive to the next generation.'''
-    sorted = population.alive.best(sort="min", attribute="fitness_", n=population.size)
-    for ind in sorted[config.target_population_size:]:
+    sorted_population = population.alive.best(sort="min", attribute="fitness_", n=population.size)
+    for ind in sorted_population[config.target_population_size:]:
         ind.alive = False
-    return sorted
+    return sorted_population
 
 def survivor_selection_total_replace(population: Population) -> Population:
     '''Selects the best individuals to survive to the next generation.'''
@@ -465,7 +482,10 @@ def main() -> None:
     console.log(f"controller outputs (model.nu)      : {output_size}")
     console.log(f"genotype length (total weights)    : {num_weights}")
 
-    config.target_population_size = 5
+    # Test-sized values; raise to real numbers once the pipeline works.
+    config.target_population_size = 4
+    config.num_steps = 3
+    config.is_maximisation = False
     match SCENARIO:
         case "random":
             for i in range(config.target_population_size):
@@ -482,7 +502,7 @@ def main() -> None:
                 EAOperation(evaluate),
                 EAOperation(survivor_selection_elitism),
             ]
-            ea = EA(initial, ops, num_steps=50) #justfiy num_steps from literature, 50 is arbitrary
+            ea = EA(initial, ops, num_steps=config.num_steps) #justfiy num_steps from literature
             ea.run()
         case "ea2":
             population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
@@ -495,14 +515,16 @@ def main() -> None:
                 EAOperation(evaluate),
                 EAOperation(survivor_selection_total_replace),
             ]
-            #justfiy num_steps from literature, 50 is arbitrary
-            ea = EA(initial, ops, num_steps=50)
+            #justfiy num_steps from literature
+            ea = EA(initial, ops, num_steps=config.num_steps)
             ea.run()
 
         case _:
             raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2'}")
     
-    #uv run assignments\assignment_2\A2_template_2026.py
+    # SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
+    # SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
+    # SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
     
 
 
