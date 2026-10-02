@@ -28,7 +28,7 @@ a rendered video, or a single frame.
 import os
 import random
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from typing import cast
 
 # Third-party libraries
@@ -44,6 +44,7 @@ from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
 from ariel.ec import set_seed
 from ariel.ec.generators import FloatMutator
 from ariel.simulation.environments import SimpleFlatWorld
+from ariel.simulation.tasks.targeted_locomotion import fitness_delta_distance
 from ariel.utils.renderers import single_frame_renderer, video_renderer
 from ariel.utils.runners import simple_runner
 from ariel.utils.video_recorder import VideoRecorder
@@ -276,8 +277,9 @@ def fitness_function(
         closer to the target in any way you care about.
     See `ariel.simulation.tasks.targeted_locomotion` for some worked variants.
     """
-    target = np.asarray(TARGET_POSITION)
-    return float(np.linalg.norm(final_position[:2] - target[:2]))
+    target: npt.NDArray[Any] = np.asarray(TARGET_POSITION)
+    #CHANGED FITNESS FUNCTION TO REDUCED DISTANCE
+    return fitness_delta_distance(initial_position, final_position, target)
 
 
 # ============================================================================ #
@@ -322,8 +324,8 @@ def run_experiment(mode: ViewerTypes = MODE, genotype: list[float] | None = None
     # --- Wire up the controller -------------------------------------------- #
     # Sizes are read from the compiled model, never hardcoded - they depend on
     # the body you chose in build_robot().
-    input_size = len(data.qpos)
-    output_size = model.nu
+    input_size: int = len(data.qpos)
+    output_size: int = model.nu
 
     if genotype is None:
         weights = make_random_weights(input_size, output_size)
@@ -389,7 +391,9 @@ def run_experiment(mode: ViewerTypes = MODE, genotype: list[float] | None = None
     return fitness
 
 def parent_selection(population: Population) -> Population:
-    '''Implements binary tournament selection to select parents for crossover.'''
+    '''Implements binary tournament selection to select parents for crossover.
+        Parent count is population size / 2.
+    '''
     shuffled = population.shuffle()
     for idx in range(0, len(shuffled) - 1, 2):
         ind_a = shuffled[idx]
@@ -401,12 +405,13 @@ def parent_selection(population: Population) -> Population:
             else:
                 ind_a.tags = {"selected": False}
                 ind_b.tags = {"selected": True}
-    #parent count = population size / 2?
     return shuffled
     
 def crossover(population: Population) -> Population:
     '''Implements uniform crossover to generate offspring from selected parents.'''
     selected_parents = population.where(lambda ind: bool(ind.tags.get("selected", False)))
+    assert len(selected_parents) % 2 == 0, "Number of selected parents must be even for crossover."
+    assert len(selected_parents) == config.target_population_size / 2, "Number of selected parents must be equal to half the target population size for crossover."
     for idx in range(0, len(selected_parents) - 1, 2):
         parent_a = selected_parents[idx]
         parent_b = selected_parents[idx + 1]
@@ -417,7 +422,7 @@ def crossover(population: Population) -> Population:
         child_a.genotype, child_b.genotype = Crossover.uniform(
             cast("list[float]", g_a),
             cast("list[float]", g_b),
-            swap_probability=0.5 #TODO change, justfiy from literature
+            swap_probability=0.5 #TODO change if needed, justfiy from literature
         )
         child_a.tags = {"mutate": True}
         child_b.tags = {"mutate": True}
@@ -431,7 +436,7 @@ def mutate(population: Population) -> Population:
         ind.genotype = FloatMutator.gaussian(
             individual=cast("list[float]", ind.genotype),
             std=0.2, #TODO why std 0.2? justify from literature
-            mutation_probability=0.2
+            mutation_probability=0.2 # TODO why mutation probability 0.2? justify from literature
         )
         ind.requires_eval = True
     return population
@@ -439,6 +444,7 @@ def mutate(population: Population) -> Population:
 def evaluate(population: Population) -> Population:
     '''Evaluates the fitness of individuals in the population.'''
     for ind in population.unevaluated:
+        assert isinstance(ind.genotype, list) and all(isinstance(g, float) for g in ind.genotype), "Genotype must be a list of floats."
         fitness = run_experiment(MODE, ind.genotype)
         ind.fitness = fitness
     return population
@@ -448,10 +454,11 @@ def survivor_selection_elitism(population: Population) -> Population:
     sorted_population = population.alive.best(sort="min", attribute="fitness_", n=population.size)
     for ind in sorted_population[config.target_population_size:]:
         ind.alive = False
+    assert sorted_population.alive.size == config.target_population_size
     return sorted_population
 
 def survivor_selection_total_replace(population: Population) -> Population:
-    '''Selects the best individuals to survive to the next generation.'''
+    '''Replace children with parents regardless of fitness.'''
     parents = population.where(lambda ind: ind.tags.get("selected", False))
     for p in parents:
         p.alive = False
@@ -490,7 +497,7 @@ def main() -> None:
         case "random":
             for i in range(config.target_population_size):
                 console.log(f"--- RANDOM RUN {i + 1} ---")
-                run_experiment(MODE)
+                run_experiment(MODE) #handle random weight generation inside this function
         case "ea1":
             population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
             #init eval
