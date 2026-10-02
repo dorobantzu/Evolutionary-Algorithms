@@ -490,14 +490,17 @@ def main() -> None:
     console.log(f"genotype length (total weights)    : {num_weights}")
 
     # Test-sized values; raise to real numbers once the pipeline works.
-    config.target_population_size = 4
+    config.target_population_size = 20
     config.num_steps = 3
     config.is_maximisation = False
+    config.db_file_name = f"{SCENARIO}_seed{SEED}.db"
     match SCENARIO:
         case "random":
-            for i in range(config.target_population_size):
-                console.log(f"--- RANDOM RUN {i + 1} ---")
-                run_experiment(MODE) #handle random weight generation inside this function
+            population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
+            initial: Population = evaluate(population)
+            # Zero steps: the EA only commits the evaluated random individuals to the database.
+            EA(initial, [], num_steps=0)
+
         case "ea1":
             population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
             #init eval
