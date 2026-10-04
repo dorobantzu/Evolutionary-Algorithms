@@ -67,6 +67,17 @@ def per_generation(pop: Population) -> list[dict]:
     return rows
 
 
+def takeover_time(pop: Population) -> int | None:
+    """Takeover time τ*: first generation in which every individual carries the genotype
+    of the best individual of generation 0. None if that never happens within the run."""
+    best_genotype = min(members(pop, 0), key=lambda ind: ind.fitness).genotype
+    last_gen = max(ind.time_of_death for ind in pop)
+    for gen in range(1, last_gen + 1):
+        if all(ind.genotype == best_genotype for ind in members(pop, gen)):
+            return gen
+    return None
+
+
 def seed_of(db: Path) -> int:
     return int(db.stem.rsplit("_seed", 1)[1])
 
@@ -97,6 +108,9 @@ def main() -> None:
             top10 = pop.best(sort="min", attribute="fitness_", n=10)
             print(f"       top10 (id: fitness): "
                   + ", ".join(f"{ind.id}: {ind.fitness:.4f}" for ind in top10))
+            if scenario != "random":  # no selection in random, so no takeover
+                tau = takeover_time(pop)
+                print(f"       takeover time: {'not reached' if tau is None else f'{tau} generations'}")
 
         final_best = np.array([gens[-1]["best"] for gens in runs[scenario].values()])
         overall_best = np.array([min(r["best"] for r in gens) for gens in runs[scenario].values()])

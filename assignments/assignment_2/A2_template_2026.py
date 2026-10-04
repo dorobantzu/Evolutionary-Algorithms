@@ -440,7 +440,7 @@ def crossover(population: Population) -> Population:
     return population
 
 def mutate(population: Population) -> Population:
-    '''Implements float mutation to introduce variation in the offspring.'''
+    '''Implements gaussian mutation to introduce variation in the offspring.'''
     for ind in population.where(lambda ind: bool(ind.tags.get("mutate", False))):
         #TODO why gaussian? justify from literature
         ind.genotype = FloatMutator.gaussian(
@@ -546,8 +546,8 @@ def main() -> None:
     console.log(f"genotype length (total weights)    : {num_weights}")
 
     # Test-sized values; raise to real numbers once the pipeline works.
-    config.target_population_size = 4
-    config.num_steps = 3
+    config.target_population_size = 100
+    config.num_steps = 200
     config.is_maximisation = False
     config.db_file_name = f"{SCENARIO}_seed{SEED}.db"
     match SCENARIO:
@@ -591,6 +591,7 @@ def main() -> None:
     save_runtime(start, datetime.now(), time.perf_counter() - t0)
 
     # MACHINE=atilla_linux SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_windows SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
     
