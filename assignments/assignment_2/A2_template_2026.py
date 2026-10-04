@@ -547,7 +547,7 @@ def main() -> None:
 
     # Test-sized values; raise to real numbers once the pipeline works.
     config.target_population_size = 100
-    config.num_steps = 200
+    config.num_steps = 300
     config.is_maximisation = False
     config.db_file_name = f"{SCENARIO}_seed{SEED}.db"
     match SCENARIO:
