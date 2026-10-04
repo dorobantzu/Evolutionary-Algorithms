@@ -1,6 +1,6 @@
 """Extract metrics from the A2 scenario databases and plot fitness across generations.
 
-Reads every `<scenario>_seed<N>.db` in `__data__/` of the current directory, the
+Reads every `<scenario>_pop<N>_steps<N>_k<N>_eval<N>_seed<N>.db` in `__data__/` of the current directory, the
 same folder the A2 template writes to. Run from the repo root:
 
     SCENARIO=all    uv run assignments/assignment_2/analyze.py   # default
@@ -14,6 +14,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
+from scipy.stats import mannwhitneyu
 from sqlmodel import Session, create_engine, select
 
 from ariel.ec import Individual, Population, config
@@ -28,8 +29,8 @@ SELECTED = SCENARIOS if SCENARIO == "all" else (SCENARIO,)
 # Colour follows the scenario, so filtering never repaints a series.
 STYLE = {
     "random": {"color": "#1baf7a", "linestyle": "--", "label": "random"},
-    "ea1": {"color": "#2a78d6", "linestyle": "-", "label": "ea1 (elitism)"},
-    "ea2": {"color": "#eb6834", "linestyle": "-.", "label": "ea2 (generational)"},
+    "ea1": {"color": "#2a78d6", "linestyle": "-", "label": "ea1 (k=2)"},
+    "ea2": {"color": "#eb6834", "linestyle": "-.", "label": "ea2 (k=7)"},
 }
 INK, MUTED, GRID, SURFACE = "#1f1f1e", "#6b6a64", "#e4e3dd", "#fcfcfb"
 
@@ -87,7 +88,7 @@ def main() -> None:
     csv_rows = []
 
     for scenario in SELECTED:
-        dbs = sorted(DATA.glob(f"{scenario}_seed*.db"), key=seed_of)
+        dbs = sorted(DATA.glob(f"{scenario}_pop*_steps*_k*_eval*_seed*.db"), key=seed_of)
         if not dbs:
             print(f"[{scenario}] no databases found, skipping")
             continue
@@ -106,7 +107,7 @@ def main() -> None:
             print(f"{seed:>6} {pop.size:>6} {len(gens) - 1:>5} {best.id:>8} "
                   f"{best.fitness:>9.4f} {fitness.mean():>9.4f} {std(fitness):>9.4f}")
             top10 = pop.best(sort="min", attribute="fitness_", n=10)
-            print(f"       top10 (id: fitness): "
+            print("       top10 (id: fitness): "
                   + ", ".join(f"{ind.id}: {ind.fitness:.4f}" for ind in top10))
             if scenario != "random":  # no selection in random, so no takeover
                 tau = takeover_time(pop)
@@ -116,6 +117,8 @@ def main() -> None:
         overall_best = np.array([min(r["best"] for r in gens) for gens in runs[scenario].values()])
         print(f"  across seeds: final-generation best {final_best.mean():.4f} ± {std(final_best):.4f}, "
               f"best ever {overall_best.mean():.4f} ± {std(overall_best):.4f}")
+
+    compare_ea1_ea2(runs)
 
     if runs:
         csv_path = DATA / f"metrics_{SCENARIO}.csv"
@@ -127,6 +130,23 @@ def main() -> None:
         plot(runs)
 
     runtimes()
+
+
+def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
+    """Compare independent EA1 and EA2 runs on best-ever fitness."""
+    if not {"ea1", "ea2"}.issubset(runs):
+        print("\n[statistics] EA1 and EA2 databases are both required; skipping comparison")
+        return
+
+    ea1 = np.array([min(row["best"] for row in run) for run in runs["ea1"].values()])
+    ea2 = np.array([min(row["best"] for row in run) for run in runs["ea2"].values()])
+    statistic, p_value = mannwhitneyu(ea1, ea2, alternative="two-sided", method="auto")
+    print("\n=== EA1 vs EA2: best-ever fitness (two-sided Mann–Whitney U) ===")
+    print(f"EA1 (k=2): n={ea1.size}, mean={ea1.mean():.4f} ± {std(ea1):.4f}")
+    print(f"EA2 (k=7): n={ea2.size}, mean={ea2.mean():.4f} ± {std(ea2):.4f}")
+    print(f"U={statistic:.1f}, p={p_value:.4g}")
+    if min(ea1.size, ea2.size) < 5:
+        print("Warning: the assignment requires at least five independent runs per condition.")
 
 
 def runtimes() -> None:

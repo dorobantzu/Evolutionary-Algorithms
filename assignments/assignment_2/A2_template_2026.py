@@ -28,6 +28,7 @@ a rendered video, or a single frame.
 import csv
 import os
 import random
+import socket
 import time
 from datetime import datetime
 from pathlib import Path
@@ -43,7 +44,7 @@ from mujoco import viewer
 # Local libraries (ARIEL)
 from ariel import console
 from ariel.body_phenotypes.robogen_lite.modules.core import CoreModule
-from ariel.body_phenotypes.robogen_lite.prebuilt_robots.gecko import gecko
+from ariel.body_phenotypes.robogen_lite.prebuilt_robots.john_set import gecko
 from ariel.ec import set_seed
 from ariel.ec.generators import FloatMutator
 from ariel.simulation.environments import SimpleFlatWorld
@@ -88,12 +89,17 @@ SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
 MODE: ViewerTypes = "simple"  # see run_experiment() for the options
 SCENARIO = os.environ.get("SCENARIO", "random")
 
-# Machine the run happens on, saved with each runtime. Required, no default.
-# Valid values (add new machines to MACHINES):
-#   MACHINE=atilla_linux
-#   MACHINE=atilla_windows
-MACHINES: tuple[str, ...] = ("atilla_linux", "atilla_windows")
-MACHINE = os.environ.get("MACHINE")
+# Machine the run happens on, saved with each runtime. An explicit MACHINE
+# value is useful for lab machines; otherwise use the current hostname.
+MACHINE = os.environ.get("MACHINE", socket.gethostname())
+
+# Keep these values fixed for every scenario in the final experiment. The
+# scenario-specific tournament sizes are part of the experimental condition.
+POPULATION_SIZE = 100
+NUM_STEPS = 300
+TOURNAMENT_K = {"ea1": 2, "ea2": 7}
+# Each EA evaluates the initial population plus 50 offspring per generation.
+EVALUATION_BUDGET = POPULATION_SIZE + NUM_STEPS * (POPULATION_SIZE // 2)
 
 
 # ============================================================================ #
@@ -400,21 +406,20 @@ def run_experiment(mode: ViewerTypes = MODE, genotype: list[float] | None = None
 
     return fitness
 
-def parent_selection(population: Population) -> Population:
-    '''Implements binary tournament selection to select parents for crossover.
+def parent_selection(population: Population, k: int = 2) -> Population:
+    '''Implements tournament selection to select parents for crossover.
         Parent count is population size / 2.
     '''
+    for ind in population:
+        ind.tags = {"selected": False}
+    selected_count = 0
+    while selected_count < config.target_population_size / 2:
+        shuffled = population.where(lambda ind: not bool(ind.tags.get("selected", False))).shuffle()
+        contenders = shuffled[:k]
+        winner = contenders.best(sort="min", attribute="fitness_", n=1)[0]
+        winner.tags = {"selected": True}
+        selected_count += 1
     shuffled = population.shuffle()
-    for idx in range(0, len(shuffled) - 1, 2):
-        ind_a = shuffled[idx]
-        ind_b = shuffled[idx + 1]
-        if ind_a.fitness_ is not None and ind_b.fitness_ is not None:
-            if ind_a.fitness_ <= ind_b.fitness_:
-                ind_a.tags = {"selected": True}
-                ind_b.tags = {"selected": False}
-            else:
-                ind_a.tags = {"selected": False}
-                ind_b.tags = {"selected": True}
     return shuffled
     
 def crossover(population: Population) -> Population:
@@ -514,12 +519,6 @@ def save_runtime(start: datetime, end: datetime, duration_s: float) -> None:
 # RUN THEM ONE AFTER ANOTHER, OR STATE IN THE REPORT WHICH RUNS WERE PARALLEL.
 def main() -> None:
     """Run a single demo evaluation with a randomly-weighted controller."""
-    if MACHINE not in MACHINES:
-        raise SystemExit(
-            f"MACHINE is {'not set' if MACHINE is None else f'invalid ({MACHINE!r})'}. "
-            f"Set it to one of {MACHINES}, e.g.:\n"
-            f"  MACHINE=atilla_linux SCENARIO={SCENARIO} uv run assignments/assignment_2/A2_template_2026.py"
-        )
     start = datetime.now()
     t0 = time.perf_counter()
 
@@ -545,14 +544,24 @@ def main() -> None:
     console.log(f"controller outputs (model.nu)      : {output_size}")
     console.log(f"genotype length (total weights)    : {num_weights}")
 
-    # Test-sized values; raise to real numbers once the pipeline works.
-    config.target_population_size = 100
-    config.num_steps = 300
+    config.target_population_size = POPULATION_SIZE
+    config.num_steps = NUM_STEPS
     config.is_maximisation = False
-    config.db_file_name = f"{SCENARIO}_seed{SEED}.db"
+    tournament_k = TOURNAMENT_K.get(SCENARIO)
+    k_label = str(tournament_k) if tournament_k is not None else "na"
+    generations = 0 if SCENARIO == "random" else config.num_steps
+    config.db_file_name = (
+        f"{SCENARIO}_pop{config.target_population_size}_steps{generations}"
+        f"_k{k_label}_eval{EVALUATION_BUDGET}_seed{SEED}.db"
+    )
     match SCENARIO:
         case "random":
-            population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
+            # Match the EA budget exactly: 100 initial evaluations + 300 × 50
+            # independently sampled controllers. No selection or variation is used.
+            population: Population = Population([
+                make_individual(make_random_weights(input_size, output_size))
+                for _ in range(EVALUATION_BUDGET)
+            ])
             initial: Population = evaluate(population)
             # Zero steps: the EA only commits the evaluated random individuals to the database.
             EA(initial, [], num_steps=0)
@@ -562,7 +571,7 @@ def main() -> None:
             #init eval
             initial: Population = evaluate(population)
             ops: list[EAOperation] = [
-                EAOperation(parent_selection),
+                EAOperation(parent_selection)(k=TOURNAMENT_K["ea1"]),
                 EAOperation(crossover),
                 EAOperation(mutate),
                 EAOperation(evaluate),
@@ -575,14 +584,13 @@ def main() -> None:
             #init eval
             initial: Population = evaluate(population)
             ops: list[EAOperation] = [
-                EAOperation(parent_selection),
+                EAOperation(parent_selection)(k=TOURNAMENT_K["ea2"]),
                 EAOperation(crossover),
                 EAOperation(mutate),
                 EAOperation(evaluate),
-                EAOperation(survivor_selection_total_replace),
+                EAOperation(survivor_selection_elitism),
             ]
-            #justfiy num_steps from literature
-            ea = EA(initial, ops, num_steps=config.num_steps)
+            ea = EA(initial, ops, num_steps=config.num_steps) #justfiy num_steps from literature
             ea.run()
 
         case _:
