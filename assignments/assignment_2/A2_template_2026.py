@@ -96,7 +96,7 @@ MACHINE = os.environ.get("MACHINE", socket.gethostname())
 # Keep these values fixed for every scenario in the final experiment. The
 # scenario-specific tournament sizes are part of the experimental condition.
 POPULATION_SIZE = 100
-NUM_STEPS = 300
+NUM_STEPS = 500
 TOURNAMENT_K = {"ea1": 2, "ea2": 7}
 # Each EA evaluates the initial population plus 50 offspring per generation.
 EVALUATION_BUDGET = POPULATION_SIZE + NUM_STEPS * (POPULATION_SIZE // 2)
@@ -593,8 +593,50 @@ def main() -> None:
             ea = EA(initial, ops, num_steps=config.num_steps) #justfiy num_steps from literature
             ea.run()
 
+        case "show":
+            # Paste one individual's genotype here (a flat list of `num_weights` floats).
+            # Best of ea1_pop100_steps500_k2_eval25100_seed42.db: id 18751, fitness -1.5056.
+            genotype: list[float] = [
+                0.6024487124393731, -0.06166813814556389, -0.2809329039447701, -0.9036977754051375,
+                0.321915401877956, 1.7351314456470297, -0.18919346344265758, 0.3020737016133159,
+                0.7464831086773893, 0.7832523899578119, -0.37479455123127825, 0.17472483651406584,
+                -0.34984755205104134, -0.3366783649627514, -0.38044459490348576, 0.4934734460430641,
+                0.017582840455742432, 0.3715570587694985, -0.3634829081808342, 0.12797580048775706,
+                0.3930398820137042, 0.33860546088492494, 0.5410569951165299, -1.0617832099359503,
+                -0.205562353303907, 0.7832003104036218, -0.12676199190425536, -0.3206573486380281,
+                -0.5606113530962532, 0.029216696350424204, -0.07483629787888006,
+                -0.1498563726085754, -0.18368156854907014, 0.5101280541175903, -0.49914493228303625,
+                0.7928893836090811, 0.36497016685434563, -0.07045051499081527, 0.8581316510922121,
+                0.08754980355160291, -0.291126515409773, -0.7707618577649091, 0.28356122447763,
+                1.5809330921829043, 0.9825463124193502, 1.255643694963899, -0.5997102402464212,
+                -0.3228478931769287, -1.0837214771612937, 1.051979605471347, -0.1360481420118112,
+                -0.14889460211405603, 0.5008983948020067, -1.485290852201441, -0.4562473922837952,
+                0.32314740957241583, -0.9542184746539155, -1.4407156146739752, 1.1434437799200179,
+                -0.47092287354428297, 0.33173281034573343, 0.9062915259648952, 0.40896138435703844,
+                1.205038856346738, -0.5687840771996796, 0.6971142326922274, 0.27081985837503225,
+                -0.045207414748339725, 0.09621378354949528, 0.05962441462696742,
+                -0.42049613149219767, -0.24184537589185945, -0.5659322548399517, 0.8932525916315568,
+                0.03909744055948975, 0.19607295499584504, -0.6731220023396427, -0.5632867377010635,
+                -0.25290574407466804, -0.456472948096252, 0.5421037543480959, 0.2145183352722336,
+                0.8464747314550767, -0.5676599013229966, 0.11486039583559755, 0.05510650725710205,
+                1.231573997769603, -0.679784116056156, -0.7651692992328781, 1.5513568019394348,
+                1.0083287670533512, 0.5519691739138641, 0.518924347019178, 0.06693962216651372,
+                -0.6121437092749078, 0.349714972811494, 0.6685277144222213, 0.35614302494470634,
+                -0.853259076767857, 0.5421516314078578, 0.4079338486033033, 0.5708068021931415,
+                -0.394743880326085, -0.2208188934004033, 0.0858244681858176, -0.16219453879871368,
+                0.073254046601703, 0.12953619717284853, 1.318540774577425, 0.8216865237519635,
+                -1.4670097595049165, -0.7388565118440359, 0.039118481113843404, -0.5510276111903226,
+            ]
+            if not genotype:
+                raise SystemExit(
+                    f"SCENARIO=show needs a genotype: paste a list of {num_weights} floats "
+                    "into the `genotype` variable in the \"show\" case of main()."
+                )
+            run_experiment("launcher", genotype)
+            return  # a viewing run: no database and no runtime row
+
         case _:
-            raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2'}")
+            raise ValueError(f"invalid SCENARIO: {SCENARIO!r}. Valid options: {'random', 'ea1', 'ea2', 'show'}")
 
     save_runtime(start, datetime.now(), time.perf_counter() - t0)
 
@@ -602,6 +644,7 @@ def main() -> None:
     # MACHINE=atilla_windows SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
+    # SCENARIO=show uv run assignments/assignment_2/A2_template_2026.py
     
 
 
