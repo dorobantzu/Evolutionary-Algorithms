@@ -95,8 +95,8 @@ MACHINE = os.environ.get("MACHINE", socket.gethostname())
 
 # Keep these values fixed for every scenario in the final experiment. The
 # mutation std is the only setting that differs between ea1 and ea2.
-POPULATION_SIZE = 100
-NUM_STEPS = 1000
+POPULATION_SIZE = 52
+NUM_STEPS = 500
 TOURNAMENT_K = 2
 MUTATION_STD = {"ea1": 0.2, "ea2": 0.4}  # also goes into the database file name
 # Each EA evaluates the initial population plus 50 offspring per generation.
