@@ -85,7 +85,7 @@ DATA.mkdir(parents=True, exist_ok=True)
 # --- EXPERIMENT CONSTANTS --- #
 SPAWN_POS: list[float] = [0.0, 0.0, 0.1]  # where the robot starts
 TARGET_POSITION: list[float] = [2.0, 0.0, 0.1]  # where it should end up
-SIM_DURATION: float = 15.0  # seconds of simulated time per evaluation
+SIM_DURATION: float = 30.0  # seconds of simulated time per evaluation
 MODE: ViewerTypes = "simple"  # see run_experiment() for the options
 SCENARIO = os.environ.get("SCENARIO", "random")
 
@@ -94,10 +94,11 @@ SCENARIO = os.environ.get("SCENARIO", "random")
 MACHINE = os.environ.get("MACHINE", socket.gethostname())
 
 # Keep these values fixed for every scenario in the final experiment. The
-# scenario-specific tournament sizes are part of the experimental condition.
+# mutation std is the only setting that differs between ea1 and ea2.
 POPULATION_SIZE = 100
-NUM_STEPS = 500
-TOURNAMENT_K = {"ea1": 2, "ea2": 7}
+NUM_STEPS = 1000
+TOURNAMENT_K = 2
+MUTATION_STD = {"ea1": 0.2, "ea2": 0.4}  # also goes into the database file name
 # Each EA evaluates the initial population plus 50 offspring per generation.
 EVALUATION_BUDGET = POPULATION_SIZE + NUM_STEPS * (POPULATION_SIZE // 2)
 
@@ -444,13 +445,13 @@ def crossover(population: Population) -> Population:
         population.extend([child_a, child_b])
     return population
 
-def mutate(population: Population) -> Population:
+def mutate(population: Population, std: float = 0.2) -> Population:
     '''Implements gaussian mutation to introduce variation in the offspring.'''
     for ind in population.where(lambda ind: bool(ind.tags.get("mutate", False))):
         #TODO why gaussian? justify from literature
         ind.genotype = FloatMutator.gaussian(
             individual=cast("list[float]", ind.genotype),
-            std=0.2, #TODO why std 0.2? justify from literature
+            std=std, #TODO justify the std from literature
             mutation_probability=0.2 # TODO why mutation probability 0.2? justify from literature
         )
         ind.requires_eval = True
@@ -547,16 +548,17 @@ def main() -> None:
     config.target_population_size = POPULATION_SIZE
     config.num_steps = NUM_STEPS
     config.is_maximisation = False
-    tournament_k = TOURNAMENT_K.get(SCENARIO)
-    k_label = str(tournament_k) if tournament_k is not None else "na"
+    # Random search has no selection or mutation, so its file name carries no k and no std.
+    k_label = str(TOURNAMENT_K) if SCENARIO in MUTATION_STD else "na"
     generations = 0 if SCENARIO == "random" else config.num_steps
+    std_prefix = f"std_{str(MUTATION_STD[SCENARIO]).replace('.', '_')}_" if SCENARIO in MUTATION_STD else ""
     config.db_file_name = (
-        f"{SCENARIO}_pop{config.target_population_size}_steps{generations}"
+        f"{std_prefix}{SCENARIO}_pop{config.target_population_size}_steps{generations}"
         f"_k{k_label}_eval{EVALUATION_BUDGET}_seed{SEED}.db"
     )
     match SCENARIO:
         case "random":
-            # Match the EA budget exactly: 100 initial evaluations + 300 × 50
+            # Match the EA budget exactly: POPULATION_SIZE initial evaluations + NUM_STEPS × 50
             # independently sampled controllers. No selection or variation is used.
             population: Population = Population([
                 make_individual(make_random_weights(input_size, output_size))
@@ -566,27 +568,15 @@ def main() -> None:
             # Zero steps: the EA only commits the evaluated random individuals to the database.
             EA(initial, [], num_steps=0)
 
-        case "ea1":
+        case "ea1" | "ea2":
+            # ea1 and ea2 share every setting; only the mutation std differs.
             population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
             #init eval
             initial: Population = evaluate(population)
             ops: list[EAOperation] = [
-                EAOperation(parent_selection)(k=TOURNAMENT_K["ea1"]),
+                EAOperation(parent_selection)(k=TOURNAMENT_K),
                 EAOperation(crossover),
-                EAOperation(mutate),
-                EAOperation(evaluate),
-                EAOperation(survivor_selection_elitism),
-            ]
-            ea = EA(initial, ops, num_steps=config.num_steps) #justfiy num_steps from literature
-            ea.run()
-        case "ea2":
-            population: Population = Population([make_individual(make_random_weights(input_size, output_size)) for _ in range(config.target_population_size)])
-            #init eval
-            initial: Population = evaluate(population)
-            ops: list[EAOperation] = [
-                EAOperation(parent_selection)(k=TOURNAMENT_K["ea2"]),
-                EAOperation(crossover),
-                EAOperation(mutate),
+                EAOperation(mutate)(std=MUTATION_STD[SCENARIO]),
                 EAOperation(evaluate),
                 EAOperation(survivor_selection_elitism),
             ]
@@ -632,7 +622,7 @@ def main() -> None:
                     f"SCENARIO=show needs a genotype: paste a list of {num_weights} floats "
                     "into the `genotype` variable in the \"show\" case of main()."
                 )
-            run_experiment("launcher", genotype)
+            run_experiment("video", genotype)
             return  # a viewing run: no database and no runtime row
 
         case _:

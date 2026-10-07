@@ -1,7 +1,9 @@
 """Extract metrics from the A2 scenario databases and plot fitness across generations.
 
-Reads every `<scenario>_pop<N>_steps<N>_k<N>_eval<N>_seed<N>.db` in `__data__/` of the current directory, the
-same folder the A2 template writes to. Run from the repo root:
+Reads every `[std_<X>_<Y>_]<scenario>_pop<N>_steps<N>_k<N>_eval<N>_seed<N>.db` in `__data__/` of the
+current directory, the same folder the A2 template writes to. The optional `std_<X>_<Y>_` prefix is the
+mutation std (`std_0_2_` = 0.2); each scenario + std combination is analysed and plotted as its own series.
+Run from the repo root:
 
     SCENARIO=all    uv run assignments/assignment_2/analyze.py   # default
     SCENARIO=ea1    uv run assignments/assignment_2/analyze.py
@@ -9,6 +11,7 @@ same folder the A2 template writes to. Run from the repo root:
 
 import csv
 import os
+import re
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -29,10 +32,53 @@ SELECTED = SCENARIOS if SCENARIO == "all" else (SCENARIO,)
 # Colour follows the scenario, so filtering never repaints a series.
 STYLE = {
     "random": {"color": "#1baf7a", "linestyle": "--", "label": "random"},
-    "ea1": {"color": "#2a78d6", "linestyle": "-", "label": "ea1 (k=2)"},
-    "ea2": {"color": "#eb6834", "linestyle": "-.", "label": "ea2 (k=7)"},
+    "ea1": {"color": "#2a78d6", "linestyle": "-", "label": "ea1"},
+    "ea2": {"color": "#eb6834", "linestyle": "-.", "label": "ea2"},
 }
 INK, MUTED, GRID, SURFACE = "#1f1f1e", "#6b6a64", "#e4e3dd", "#fcfcfb"
+
+# Used only when databases carry a mutation-std prefix, so one scenario has several series.
+PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
+LINESTYLES = ("-", "--", "-.", ":")
+DB_NAME = re.compile(
+    r"^(?:std_(?P<std>\d+(?:_\d+)?)_)?(?P<scenario>random|ea1|ea2)"
+    r"_pop\d+_steps\d+_k\w+_eval\d+_seed(?P<seed>\d+)$"
+)
+
+
+def discover() -> dict[str, dict]:
+    """Group every database in DATA into series: one per scenario + mutation std."""
+    series: dict[tuple[int, float], dict] = {}
+    for db in DATA.glob("*.db"):
+        m = DB_NAME.match(db.stem)
+        if m is None:
+            continue
+        scenario = m["scenario"]
+        mutation_std = m["std"].replace("_", ".") if m["std"] else None
+        key = (SCENARIOS.index(scenario), float(mutation_std or -1))
+        entry = series.setdefault(key, {"scenario": scenario, "mutation_std": mutation_std, "dbs": {}})
+        entry["dbs"][int(m["seed"])] = db
+
+    ordered = [series[k] for k in sorted(series)]
+    has_std = any(s["mutation_std"] for s in ordered)
+    result: dict[str, dict] = {}
+    for i, s in enumerate(ordered):
+        base = STYLE[s["scenario"]]
+        if s["mutation_std"] is None:
+            name, label = s["scenario"], base["label"]
+        else:
+            name = f"{s['scenario']} std={s['mutation_std']}"
+            label = f"{base['label']}, std={s['mutation_std']}"
+        # Colours are assigned over all databases found, so SCENARIO filtering never repaints a series.
+        s["color"] = PALETTE[i % len(PALETTE)] if has_std else base["color"]
+        variant = sum(1 for other in ordered[:i] if other["scenario"] == s["scenario"])
+        s["linestyle"] = LINESTYLES[variant % len(LINESTYLES)] if has_std else base["linestyle"]
+        s["label"] = label
+        result[name] = s
+    return result
+
+
+SERIES = discover()
 
 
 def load(db: Path) -> Population:
@@ -79,31 +125,33 @@ def takeover_time(pop: Population) -> int | None:
     return None
 
 
-def seed_of(db: Path) -> int:
-    return int(db.stem.rsplit("_seed", 1)[1])
-
-
 def main() -> None:
     runs: dict[str, dict[int, list[dict]]] = {}
     csv_rows = []
 
     for scenario in SELECTED:
-        dbs = sorted(DATA.glob(f"{scenario}_pop*_steps*_k*_eval*_seed*.db"), key=seed_of)
-        if not dbs:
+        if not any(s["scenario"] == scenario for s in SERIES.values()):
             print(f"[{scenario}] no databases found, skipping")
+
+    for name, series in SERIES.items():
+        scenario = series["scenario"]
+        if scenario not in SELECTED:
             continue
-        runs[scenario] = {}
-        print(f"\n=== {scenario} ({len(dbs)} run(s)) ===")
+        dbs = dict(sorted(series["dbs"].items()))
+        runs[name] = {}
+        print(f"\n=== {name} ({len(dbs)} run(s)) ===")
         print(f"{'seed':>6} {'evals':>6} {'gens':>5} {'best id':>8} {'best':>9} {'mean':>9} {'std':>9}")
 
-        for db in dbs:
-            seed = seed_of(db)
+        for seed, db in dbs.items():
             pop = load(db)
             fitness = np.array([ind.fitness for ind in pop])
             best = pop.best(sort="min", attribute="fitness_", n=1)[0]
             gens = per_generation(pop)
-            runs[scenario][seed] = gens
-            csv_rows += [{"scenario": scenario, "seed": seed, **row} for row in gens]
+            runs[name][seed] = gens
+            csv_rows += [
+                {"scenario": scenario, "mutation_std": series["mutation_std"] or "", "seed": seed, **row}
+                for row in gens
+            ]
             print(f"{seed:>6} {pop.size:>6} {len(gens) - 1:>5} {best.id:>8} "
                   f"{best.fitness:>9.4f} {fitness.mean():>9.4f} {std(fitness):>9.4f}")
             top10 = pop.best(sort="min", attribute="fitness_", n=10)
@@ -113,8 +161,8 @@ def main() -> None:
                 tau = takeover_time(pop)
                 print(f"       takeover time: {'not reached' if tau is None else f'{tau} generations'}")
 
-        final_best = np.array([gens[-1]["best"] for gens in runs[scenario].values()])
-        overall_best = np.array([min(r["best"] for r in gens) for gens in runs[scenario].values()])
+        final_best = np.array([gens[-1]["best"] for gens in runs[name].values()])
+        overall_best = np.array([min(r["best"] for r in gens) for gens in runs[name].values()])
         print(f"  across seeds: final-generation best {final_best.mean():.4f} ± {std(final_best):.4f}, "
               f"best ever {overall_best.mean():.4f} ± {std(overall_best):.4f}")
 
@@ -134,16 +182,19 @@ def main() -> None:
 
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
     """Compare independent EA1 and EA2 runs on best-ever fitness."""
-    if not {"ea1", "ea2"}.issubset(runs):
-        print("\n[statistics] EA1 and EA2 databases are both required; skipping comparison")
+    names = {s: [n for n in runs if SERIES[n]["scenario"] == s] for s in ("ea1", "ea2")}
+    if any(len(found) != 1 for found in names.values()):
+        print("\n[statistics] exactly one EA1 series and one EA2 series are required; skipping comparison "
+              f"(found EA1: {names['ea1'] or 'none'}, EA2: {names['ea2'] or 'none'})")
         return
+    name1, name2 = names["ea1"][0], names["ea2"][0]
 
-    ea1 = np.array([min(row["best"] for row in run) for run in runs["ea1"].values()])
-    ea2 = np.array([min(row["best"] for row in run) for run in runs["ea2"].values()])
+    ea1 = np.array([min(row["best"] for row in run) for run in runs[name1].values()])
+    ea2 = np.array([min(row["best"] for row in run) for run in runs[name2].values()])
     statistic, p_value = mannwhitneyu(ea1, ea2, alternative="two-sided", method="auto")
     print("\n=== EA1 vs EA2: best-ever fitness (two-sided Mann–Whitney U) ===")
-    print(f"EA1 (k=2): n={ea1.size}, mean={ea1.mean():.4f} ± {std(ea1):.4f}")
-    print(f"EA2 (k=7): n={ea2.size}, mean={ea2.mean():.4f} ± {std(ea2):.4f}")
+    print(f"{name1}: n={ea1.size}, mean={ea1.mean():.4f} ± {std(ea1):.4f}")
+    print(f"{name2}: n={ea2.size}, mean={ea2.mean():.4f} ± {std(ea2):.4f}")
     print(f"U={statistic:.1f}, p={p_value:.4g}")
     if min(ea1.size, ea2.size) < 5:
         print("Warning: the assignment requires at least five independent runs per condition.")
@@ -220,8 +271,8 @@ def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
 
     for ax, metric, title in zip(axes, ("best", "mean"), ("Best fitness in population", "Mean fitness in population")):
         ax.set_facecolor(SURFACE)
-        for scenario, seeds in runs.items():
-            style = STYLE[scenario]
+        for name, seeds in runs.items():
+            style = SERIES[name]
             n_gens = min(len(g) for g in seeds.values())  # align seeds on shared generations
             values = np.array([[row[metric] for row in g[:n_gens]] for g in seeds.values()])
             mean = values.mean(axis=0)
@@ -236,7 +287,7 @@ def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
             label = f"{style['label']} (n={len(seeds)})"
             ax.plot(x, mean, color=style["color"], linestyle=style["linestyle"], linewidth=2, label=label)
             ax.fill_between(x, mean - spread, mean + spread, color=style["color"], alpha=0.15, linewidth=0)
-            ax.annotate(scenario, (x[-1], mean[-1]), xytext=(6, 0), textcoords="offset points",
+            ax.annotate(name, (x[-1], mean[-1]), xytext=(6, 0), textcoords="offset points",
                         va="center", fontsize=9, color=INK)
 
         ax.set_title(title, loc="left", fontsize=11, color=INK)
