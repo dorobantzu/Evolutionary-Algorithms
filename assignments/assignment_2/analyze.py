@@ -119,9 +119,9 @@ def diversity(genotypes: np.ndarray) -> float:
 
 assert np.isclose(diversity(np.array([[0.0, 0.0], [3.0, 4.0], [0.0, 0.0]])), 10 / 3)
 
-# Random search has no generations. Its evaluation budget equals the EAs', so its individuals are
-# split, in evaluation order, into this many equal groups to measure diversity per "generation".
-RANDOM_GENERATIONS = 500
+# Random search has no generations. Its individuals are split, in evaluation order, into groups of
+# the EA population size to measure diversity per "generation". Leftover individuals are dropped.
+RANDOM_GROUP_SIZE = 52
 
 
 def random_generations(pop: Population) -> list[dict]:
@@ -129,11 +129,15 @@ def random_generations(pop: Population) -> list[dict]:
     inds = sorted(pop, key=lambda ind: ind.id)
     f = np.array([ind.fitness for ind in inds])
     whole_run = {"best": float(f.min()), "mean": float(f.mean()), "worst": float(f.max()), "std": std(f)}
-    rows, evaluations = [], 0
-    for gen, group in enumerate(np.array_split(np.array([ind.genotype for ind in inds]), RANDOM_GENERATIONS)):
-        evaluations += len(group)
-        rows.append({"diversity": diversity(group), "generation": gen, "evaluations": evaluations, **whole_run})
-    return rows
+    genotypes = np.array([ind.genotype for ind in inds])
+    # A group sits at the generation where an EA has used as many evaluations: an EA starts with
+    # RANDOM_GROUP_SIZE individuals and adds half that many per generation, so groups land on 0, 2, 4, ...
+    return [
+        {"diversity": diversity(genotypes[end - RANDOM_GROUP_SIZE:end]),
+         "generation": (end - RANDOM_GROUP_SIZE) // (RANDOM_GROUP_SIZE // 2),
+         "evaluations": end, **whole_run}
+        for end in range(RANDOM_GROUP_SIZE, len(genotypes) + 1, RANDOM_GROUP_SIZE)
+    ]
 
 
 def per_generation(pop: Population) -> list[dict]:
@@ -228,7 +232,9 @@ def main() -> None:
         fitness_label = "fitness (lower is better)"
         plot(runs, "fitness", [("best", "Best fitness in population", fitness_label),
                                ("mean", "Mean fitness in population", fitness_label)])
-        plot(runs, "diversity", [("diversity", "Population diversity", "mean pairwise Euclidean distance")])
+        ea_runs = {name: seeds for name, seeds in runs.items() if SERIES[name]["scenario"] != "random"}
+        if ea_runs:  # the diversity plot shows the EAs only
+            plot(ea_runs, "diversity", [("diversity", "Population diversity", "mean pairwise Euclidean distance")])
 
 
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
@@ -265,7 +271,7 @@ def plot(runs: dict[str, dict[int, list[dict]]], stem: str, panels: list[tuple[s
             mean = values.mean(axis=0)
             spread = values.std(axis=0, ddof=1) if len(seeds) > 1 else np.zeros_like(mean)
 
-            x = np.arange(n_gens)
+            x = np.array([row["generation"] for row in next(iter(seeds.values()))[:n_gens]])
 
             label = f"{style['label']} (n={len(seeds)})"
             ax.plot(x, mean, color=style["color"], linestyle=style["linestyle"], linewidth=2, label=label)
