@@ -19,6 +19,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
+from scipy.spatial.distance import pdist
 from scipy.stats import mannwhitneyu
 from sqlmodel import Session, create_engine, select
 
@@ -59,7 +60,7 @@ DB_NAME = re.compile(
 def discover() -> dict[str, dict]:
     """Group every database in DATA into series: one per scenario + mutation std."""
     series: dict[tuple[int, float], dict] = {}
-    for db in DATA.glob("*.db"):
+    for db in sorted(DATA.glob("*.db")):  # sorted: the same file wins a duplicate on every machine
         m = DB_NAME.fullmatch(db.stem)
         if m is None:
             continue
@@ -67,6 +68,9 @@ def discover() -> dict[str, dict]:
         mutation_std = m["std"].replace("_", ".") if m["std"] else None
         key = (SCENARIOS.index(scenario), float(mutation_std or -1))
         entry = series.setdefault(key, {"scenario": scenario, "mutation_std": mutation_std, "dbs": {}})
+        if int(m["seed"]) in entry["dbs"]:
+            print(f"[skip] {db.name}: same scenario, std and seed as {entry['dbs'][int(m['seed'])].name}")
+            continue
         entry["dbs"][int(m["seed"])] = db
 
     ordered = [series[k] for k in sorted(series)]
@@ -108,12 +112,40 @@ def std(values: np.ndarray) -> float:
     return float(values.std(ddof=1)) if values.size > 1 else 0.0
 
 
+def diversity(genotypes: np.ndarray) -> float:
+    """Mean pairwise Euclidean distance between genotypes (rows)."""
+    return float(pdist(genotypes).mean()) if len(genotypes) > 1 else 0.0
+
+
+assert np.isclose(diversity(np.array([[0.0, 0.0], [3.0, 4.0], [0.0, 0.0]])), 10 / 3)
+
+# Random search has no generations. Its evaluation budget equals the EAs', so its individuals are
+# split, in evaluation order, into this many equal groups to measure diversity per "generation".
+RANDOM_GENERATIONS = 500
+
+
+def random_generations(pop: Population) -> list[dict]:
+    """Per-group diversity for a random-search run; the fitness columns describe the whole run."""
+    inds = sorted(pop, key=lambda ind: ind.id)
+    f = np.array([ind.fitness for ind in inds])
+    whole_run = {"best": float(f.min()), "mean": float(f.mean()), "worst": float(f.max()), "std": std(f)}
+    rows, evaluations = [], 0
+    for gen, group in enumerate(np.array_split(np.array([ind.genotype for ind in inds]), RANDOM_GENERATIONS)):
+        evaluations += len(group)
+        rows.append({"diversity": diversity(group), "generation": gen, "evaluations": evaluations, **whole_run})
+    return rows
+
+
 def per_generation(pop: Population) -> list[dict]:
     rows = []
     last_gen = max(ind.time_of_death for ind in pop)
+    if last_gen == 0:  # a zero-step run: random search
+        return random_generations(pop)
     for gen in range(last_gen + 1):
-        f = np.array([ind.fitness for ind in members(pop, gen)])
+        present = members(pop, gen)
+        f = np.array([ind.fitness for ind in present])
         rows.append({
+            "diversity": diversity(np.array([ind.genotype for ind in present])),
             "generation": gen,
             "evaluations": sum(1 for ind in pop if ind.time_of_birth <= gen),
             "best": float(f.min()),
@@ -153,16 +185,20 @@ def main() -> None:
         print(f"{'seed':>6} {'evals':>6} {'gens':>5} {'best id':>8} {'best':>9} {'mean':>9} {'std':>9}")
 
         for seed, db in dbs.items():
-            pop = load(db)
-            fitness = np.array([ind.fitness for ind in pop])
-            best = pop.best(sort="min", attribute="fitness_", n=1)[0]
-            gens = per_generation(pop)
+            try:  # an unreadable, empty or unfinished database must not stop the whole analysis
+                pop = load(db)
+                fitness = np.array([ind.fitness for ind in pop])
+                best = pop.best(sort="min", attribute="fitness_", n=1)[0]
+                gens = per_generation(pop)
+            except Exception as error:  # noqa: BLE001
+                print(f"[skip] {db.name}: {type(error).__name__}: {str(error).splitlines()[0]}")
+                continue
             runs[name][seed] = gens
             csv_rows += [
                 {"scenario": scenario, "mutation_std": series["mutation_std"] or "", "seed": seed, **row}
                 for row in gens
             ]
-            print(f"{seed:>6} {pop.size:>6} {len(gens) - 1:>5} {best.id:>8} "
+            print(f"{seed:>6} {pop.size:>6} {max(ind.time_of_death for ind in pop):>5} {best.id:>8} "
                   f"{best.fitness:>9.4f} {fitness.mean():>9.4f} {std(fitness):>9.4f}")
             top10 = pop.best(sort="min", attribute="fitness_", n=10)
             print("       top10 (id: fitness): "
@@ -171,6 +207,10 @@ def main() -> None:
                 tau = takeover_time(pop)
                 print(f"       takeover time: {'not reached' if tau is None else f'{tau} generations'}")
 
+        if not runs[name]:
+            del runs[name]
+            print("  no usable runs in this series")
+            continue
         final_best = np.array([gens[-1]["best"] for gens in runs[name].values()])
         overall_best = np.array([min(r["best"] for r in gens) for gens in runs[name].values()])
         print(f"  across seeds: final-generation best {final_best.mean():.4f} ± {std(final_best):.4f}, "
@@ -185,7 +225,11 @@ def main() -> None:
             writer.writeheader()
             writer.writerows(csv_rows)
         print(f"\nper-generation metrics -> {csv_path}")
-        plot(runs)
+        fitness_label = "fitness (lower is better)"
+        plot(runs, "fitness", [("best", "Best fitness in population", fitness_label),
+                               ("mean", "Mean fitness in population", fitness_label)])
+        plot(runs, "diversity", [("diversity", "Population diversity", "mean pairwise Euclidean distance")])
+
 
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
     """Compare independent EA1 and EA2 runs on best-ever fitness."""
@@ -207,11 +251,12 @@ def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
         print("Warning: the assignment requires at least five independent runs per condition.")
 
 
-def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
-    max_gen = max(len(g) for seeds in runs.values() for g in seeds.values()) - 1
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.2), facecolor=SURFACE)
+def plot(runs: dict[str, dict[int, list[dict]]], stem: str, panels: list[tuple[str, str, str]]) -> None:
+    """One panel per (metric, title, y-label), saved as plots/<stem>_<SCENARIO>.png."""
+    fig, axes = plt.subplots(1, len(panels), figsize=(5.5 * len(panels), 4.2), facecolor=SURFACE, squeeze=False)
+    axes = axes[0]
 
-    for ax, metric, title in zip(axes, ("best", "mean"), ("Best fitness in population", "Mean fitness in population")):
+    for ax, (metric, title, ylabel) in zip(axes, panels):
         ax.set_facecolor(SURFACE)
         for name, seeds in runs.items():
             style = SERIES[name]
@@ -220,11 +265,7 @@ def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
             mean = values.mean(axis=0)
             spread = values.std(axis=0, ddof=1) if len(seeds) > 1 else np.zeros_like(mean)
 
-            if n_gens == 1:  # random: no generations, draw as a flat baseline
-                x = np.array([0, max(max_gen, 1)])
-                mean, spread = np.repeat(mean, 2), np.repeat(spread, 2)
-            else:
-                x = np.arange(n_gens)
+            x = np.arange(n_gens)
 
             label = f"{style['label']} (n={len(seeds)})"
             ax.plot(x, mean, color=style["color"], linestyle=style["linestyle"], linewidth=2, label=label)
@@ -235,7 +276,7 @@ def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
         ax.set_title(title, loc="left", fontsize=11, color=INK)
         ax.set_xlabel("generation", color=MUTED)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_ylabel("fitness (lower is better)", color=MUTED)
+        ax.set_ylabel(ylabel, color=MUTED)
         ax.grid(axis="y", color=GRID, linewidth=0.8)
         ax.tick_params(colors=MUTED)
         for side in ("top", "right"):
@@ -250,7 +291,7 @@ def plot(runs: dict[str, dict[int, list[dict]]]) -> None:
 
     out_dir = DATA / "plots"
     out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"fitness_{SCENARIO}.png"
+    out = out_dir / f"{stem}_{SCENARIO}.png"
     fig.savefig(out, dpi=200)
     print(f"plot -> {out}")
 
