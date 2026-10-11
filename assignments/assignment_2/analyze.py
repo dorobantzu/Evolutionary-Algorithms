@@ -1,8 +1,10 @@
 """Extract metrics from the A2 scenario databases and plot fitness across generations.
 
-Reads every `[std_<X>_<Y>_]<scenario>_pop<N>_steps<N>_k<N>_eval<N>_seed<N>.db` in `__data__/` of the
-current directory, the same folder the A2 template writes to. The optional `std_<X>_<Y>_` prefix is the
-mutation std (`std_0_2_` = 0.2); each scenario + std combination is analysed and plotted as its own series.
+Reads every database named
+`[std_<X>_<Y>_]<scenario>_pop<N>_steps<N>_k<K>_eval<N>_seed<N>.db` in `__data__/` of the current
+directory, the same folder the A2 template writes to. For example,
+`std_0_2_ea1_pop52_steps500_k2_eval13052_seed1.db` is an EA1 run with mutation std 0.2.
+Each scenario + mutation-std combination is analysed and plotted as its own series.
 Run from the repo root:
 
     SCENARIO=all    uv run assignments/assignment_2/analyze.py   # default
@@ -20,9 +22,12 @@ from matplotlib.ticker import MaxNLocator
 from scipy.stats import mannwhitneyu
 from sqlmodel import Session, create_engine, select
 
-from ariel.ec import Individual, Population, config
+from ariel.ec import Individual, Population
 
-DATA = config.output_folder
+# Resolve relative to this file, not the shell's working directory.  This lets
+# `python analyze.py` work when launched from assignments/assignment_2 as well
+# as from the repository root.
+DATA = Path(__file__).resolve().parents[2] / "__data__"
 SCENARIOS = ("random", "ea1", "ea2")
 SCENARIO = os.environ.get("SCENARIO", "all")
 if SCENARIO not in (*SCENARIOS, "all"):
@@ -41,8 +46,13 @@ INK, MUTED, GRID, SURFACE = "#1f1f1e", "#6b6a64", "#e4e3dd", "#fcfcfb"
 PALETTE = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
 LINESTYLES = ("-", "--", "-.", ":")
 DB_NAME = re.compile(
-    r"^(?:std_(?P<std>\d+(?:_\d+)?)_)?(?P<scenario>random|ea1|ea2)"
-    r"_pop\d+_steps\d+_k\w+_eval\d+_seed(?P<seed>\d+)$"
+    r"(?:std_(?P<std>\d+(?:_\d+)+)_)?"
+    r"(?P<scenario>random|ea1|ea2)"
+    r"_pop(?P<population>\d+)"
+    r"_steps(?P<steps>\d+)"
+    r"_k(?P<k>[^_]+)"
+    r"_eval(?P<evaluations>\d+)"
+    r"_seed(?P<seed>\d+)"
 )
 
 
@@ -50,7 +60,7 @@ def discover() -> dict[str, dict]:
     """Group every database in DATA into series: one per scenario + mutation std."""
     series: dict[tuple[int, float], dict] = {}
     for db in DATA.glob("*.db"):
-        m = DB_NAME.match(db.stem)
+        m = DB_NAME.fullmatch(db.stem)
         if m is None:
             continue
         scenario = m["scenario"]
@@ -177,9 +187,6 @@ def main() -> None:
         print(f"\nper-generation metrics -> {csv_path}")
         plot(runs)
 
-    runtimes()
-
-
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
     """Compare independent EA1 and EA2 runs on best-ever fitness."""
     names = {s: [n for n in runs if SERIES[n]["scenario"] == s] for s in ("ea1", "ea2")}
@@ -198,71 +205,6 @@ def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
     print(f"U={statistic:.1f}, p={p_value:.4g}")
     if min(ea1.size, ea2.size) < 5:
         print("Warning: the assignment requires at least five independent runs per condition.")
-
-
-def runtimes() -> None:
-    """Summarise __data__/runtimes.csv and draw a boxplot of run durations per scenario."""
-    path = DATA / "runtimes.csv"
-    if not path.exists():
-        print(f"\n[runtime] {path} not found, skipping")
-        return
-    with path.open(newline="") as fh:
-        rows = [r for r in csv.DictReader(fh) if r["scenario"] in SELECTED]
-    by_scenario = {s: [r for r in rows if r["scenario"] == s] for s in SELECTED}
-    by_scenario = {s: rs for s, rs in by_scenario.items() if rs}
-    if not by_scenario:
-        print("\n[runtime] no runtimes for the selected scenario(s), skipping")
-        return
-
-    print("\n=== runtime (seconds) ===")
-    print(f"{'scenario':>9} {'runs':>5} {'mean':>9} {'std':>9} {'min':>9} {'max':>9}  machines")
-    for scenario, rs in by_scenario.items():
-        d = np.array([float(r["duration_s"]) for r in rs])
-        machines = sorted({r["machine"] for r in rs})
-        print(f"{scenario:>9} {d.size:>5} {d.mean():>9.1f} {std(d):>9.1f} {d.min():>9.1f} {d.max():>9.1f}  {', '.join(machines)}")
-
-    machines = sorted({r["machine"] for r in rows})
-    markers = dict(zip(machines, "osD^v<>p"))
-    rng = np.random.default_rng(0)  # fixed jitter so the plot is reproducible
-
-    fig, ax = plt.subplots(figsize=(1.8 + 1.6 * len(by_scenario), 4.2), facecolor=SURFACE)
-    ax.set_facecolor(SURFACE)
-    names = list(by_scenario)
-    data = [[float(r["duration_s"]) for r in by_scenario[s]] for s in names]
-    box = ax.boxplot(data, widths=0.5, patch_artist=True, showfliers=False,
-                     medianprops={"color": INK, "linewidth": 2},
-                     whiskerprops={"color": MUTED}, capprops={"color": MUTED})
-    for patch, scenario in zip(box["boxes"], names):
-        patch.set_facecolor(STYLE[scenario]["color"] + "33")
-        patch.set_edgecolor(STYLE[scenario]["color"])
-
-    # Every run as a dot, so a box drawn from only a few runs is not mistaken for more data.
-    for i, scenario in enumerate(names, start=1):
-        for r in by_scenario[scenario]:
-            ax.scatter(i + rng.uniform(-0.12, 0.12), float(r["duration_s"]), s=36,
-                       marker=markers[r["machine"]], color=STYLE[scenario]["color"],
-                       edgecolor=SURFACE, linewidth=1.5, zorder=3)
-    for machine in machines:
-        ax.scatter([], [], marker=markers[machine], color=MUTED, label=machine)
-
-    ax.set_xticks(range(1, len(names) + 1), [f"{s}\n(n={len(by_scenario[s])})" for s in names])
-    ax.set_title("Run duration", loc="left", fontsize=11, color=INK)
-    ax.set_ylabel("wall-clock time (s)", color=MUTED)
-    ax.grid(axis="y", color=GRID, linewidth=0.8)
-    ax.tick_params(colors=MUTED)
-    ax.set_ylim(bottom=0)
-    for side in ("top", "right"):
-        ax.spines[side].set_visible(False)
-    for side in ("left", "bottom"):
-        ax.spines[side].set_color(GRID)
-    ax.legend(title="machine", frameon=False, fontsize=8, title_fontsize=8, labelcolor=INK)
-    fig.tight_layout()
-
-    out_dir = DATA / "plots"
-    out_dir.mkdir(exist_ok=True)
-    out = out_dir / f"runtime_{SCENARIO}.png"
-    fig.savefig(out, dpi=200)
-    print(f"plot -> {out}")
 
 
 def plot(runs: dict[str, dict[int, list[dict]]]) -> None:

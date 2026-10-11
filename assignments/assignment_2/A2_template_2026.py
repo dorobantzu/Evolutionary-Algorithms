@@ -636,10 +636,25 @@ def main() -> None:
     save_runtime(start, datetime.now(), time.perf_counter() - t0)
 
     # MACHINE=atilla_linux SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "random"; uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_linux SCENARIO=random SEED=42 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "random"; $env:SEED = "42"; uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_windows SCENARIO=random uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_windows"; $env:SCENARIO = "random"; uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_windows SCENARIO=random SEED=42 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_windows"; $env:SCENARIO = "random"; $env:SEED = "42"; uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea1 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "ea1"; uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_linux SCENARIO=ea1 SEED=42 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "ea1"; $env:SEED = "42"; uv run assignments/assignment_2/A2_template_2026.py
     # MACHINE=atilla_linux SCENARIO=ea2 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "ea2"; uv run assignments/assignment_2/A2_template_2026.py
+    # MACHINE=atilla_linux SCENARIO=ea2 SEED=42 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:MACHINE = "atilla_linux"; $env:SCENARIO = "ea2"; $env:SEED = "42"; uv run assignments/assignment_2/A2_template_2026.py
     # SCENARIO=show uv run assignments/assignment_2/A2_template_2026.py
+    # $env:SCENARIO = "show"; uv run assignments/assignment_2/A2_template_2026.py
+    # SCENARIO=show SEED=42 uv run assignments/assignment_2/A2_template_2026.py
+    # $env:SCENARIO = "show"; $env:SEED = "42"; uv run assignments/assignment_2/A2_template_2026.py
     
 
 
