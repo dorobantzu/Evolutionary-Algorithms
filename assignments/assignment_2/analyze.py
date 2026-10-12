@@ -122,6 +122,9 @@ assert np.isclose(diversity(np.array([[0.0, 0.0], [3.0, 4.0], [0.0, 0.0]])), 10 
 # Random search has no generations. Its individuals are split, in evaluation order, into groups of
 # the EA population size to measure diversity per "generation". Leftover individuals are dropped.
 RANDOM_GROUP_SIZE = 52
+TARGET_FITNESS = -2.0
+FITNESS_TOLERANCE = 0.1
+TARGET_FITNESS_RANGE = (TARGET_FITNESS - FITNESS_TOLERANCE, TARGET_FITNESS + FITNESS_TOLERANCE)
 
 
 def random_generations(pop: Population) -> list[dict]:
@@ -160,6 +163,19 @@ def per_generation(pop: Population) -> list[dict]:
     return rows
 
 
+def first_target_hit(pop: Population) -> tuple[int, int, float] | None:
+    """Return evaluation count, generation and fitness of the first target-range evaluation.
+
+    Individuals are ordered by their birth generation and then their ID, which is the order in
+    which the run evaluated them. The target range is inclusive: -2.10 <= fitness <= -1.90.
+    """
+    lower, upper = TARGET_FITNESS_RANGE
+    for evaluations, ind in enumerate(sorted(pop, key=lambda ind: (ind.time_of_birth, ind.id)), start=1):
+        if lower <= ind.fitness <= upper:
+            return evaluations, ind.time_of_birth, ind.fitness
+    return None
+
+
 def takeover_time(pop: Population) -> int | None:
     """Takeover time τ*: first generation in which every individual carries the genotype
     of the best individual of generation 0. None if that never happens within the run."""
@@ -186,7 +202,8 @@ def main() -> None:
         dbs = dict(sorted(series["dbs"].items()))
         runs[name] = {}
         print(f"\n=== {name} ({len(dbs)} run(s)) ===")
-        print(f"{'seed':>6} {'evals':>6} {'gens':>5} {'best id':>8} {'best':>9} {'mean':>9} {'std':>9}")
+        print(f"{'seed':>6} {'evals':>6} {'gens':>5} {'best id':>8} {'best':>9} {'mean':>9} {'std':>9}"
+              f" {'hit eval':>9} {'hit gen':>8} {'hit fitness':>12}")
 
         for seed, db in dbs.items():
             try:  # an unreadable, empty or unfinished database must not stop the whole analysis
@@ -203,7 +220,16 @@ def main() -> None:
                 for row in gens
             ]
             print(f"{seed:>6} {pop.size:>6} {max(ind.time_of_death for ind in pop):>5} {best.id:>8} "
-                  f"{best.fitness:>9.4f} {fitness.mean():>9.4f} {std(fitness):>9.4f}")
+                  f"{best.fitness:>9.4f} {fitness.mean():>9.4f} {std(fitness):>9.4f}", end="")
+            hit = first_target_hit(pop)
+            if hit is None:
+                print(f" {'--':>9} {'--':>8} {'--':>12}")
+                print("       first fitness within 0.1 of -2.00: not reached")
+            else:
+                evaluations, generation, hit_fitness = hit
+                print(f" {evaluations:>9} {generation:>8} {hit_fitness:>12.4f}")
+                print("       first fitness within 0.1 of -2.00: "
+                      f"evaluation {evaluations}, generation {generation}, fitness {hit_fitness:.4f}")
             top10 = pop.best(sort="min", attribute="fitness_", n=10)
             print("       top10 (id: fitness): "
                   + ", ".join(f"{ind.id}: {ind.fitness:.4f}" for ind in top10))
@@ -238,7 +264,7 @@ def main() -> None:
 
 
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
-    """Compare independent EA1 and EA2 runs on best-ever fitness."""
+    """Compare independent EA1 and EA2 runs on fitness and final population diversity."""
     names = {s: [n for n in runs if SERIES[n]["scenario"] == s] for s in ("ea1", "ea2")}
     if any(len(found) != 1 for found in names.values()):
         print("\n[statistics] exactly one EA1 series and one EA2 series are required; skipping comparison "
@@ -252,6 +278,17 @@ def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
     print("\n=== EA1 vs EA2: best-ever fitness (two-sided Mann–Whitney U) ===")
     print(f"{name1}: n={ea1.size}, mean={ea1.mean():.4f} ± {std(ea1):.4f}")
     print(f"{name2}: n={ea2.size}, mean={ea2.mean():.4f} ± {std(ea2):.4f}")
+    print(f"U={statistic:.1f}, p={p_value:.4g}")
+
+    # Each final diversity value belongs to one independent run, so the same
+    # two-sided Mann--Whitney U test applies without treating generations as
+    # extra observations.
+    diversity1 = np.array([run[-1]["diversity"] for run in runs[name1].values()])
+    diversity2 = np.array([run[-1]["diversity"] for run in runs[name2].values()])
+    statistic, p_value = mannwhitneyu(diversity1, diversity2, alternative="two-sided", method="auto")
+    print("\n=== EA1 vs EA2: final population diversity (two-sided Mannâ€“Whitney U) ===")
+    print(f"{name1}: n={diversity1.size}, mean={diversity1.mean():.4f} Â± {std(diversity1):.4f}")
+    print(f"{name2}: n={diversity2.size}, mean={diversity2.mean():.4f} Â± {std(diversity2):.4f}")
     print(f"U={statistic:.1f}, p={p_value:.4g}")
     if min(ea1.size, ea2.size) < 5:
         print("Warning: the assignment requires at least five independent runs per condition.")
