@@ -616,7 +616,7 @@ def main() -> None:
         case "show":
             # Database filename relative to the project's __data__ directory.
             # serves to capture the video of the best solution found by the EA. Change this to the database you want to show.
-            db_filename = "std_0_2_ea1_pop52_steps500_k2_eval13052_seed42.db"
+            db_filename = "std_0_2_ea1_pop52_steps500_k2_eval13052_seed8.db"
             individual_id, best_fitness, genotype = load_best_genotype(db_filename)
             if len(genotype) != num_weights:
                 raise ValueError(

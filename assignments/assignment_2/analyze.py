@@ -20,7 +20,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.ticker import MaxNLocator
 from scipy.spatial.distance import pdist
-from scipy.stats import mannwhitneyu
+from scipy.stats import wilcoxon
 from sqlmodel import Session, create_engine, select
 
 from ariel.ec import Individual, Population
@@ -263,8 +263,19 @@ def main() -> None:
             plot(ea_runs, "diversity", [("diversity", "Population diversity", "mean pairwise Euclidean distance")])
 
 
+DIVERSITY_TEST_GENERATIONS = (0, 100, 200, 300, 400, 500)
+
+
+def signed_rank(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
+    """Two-sided Wilcoxon signed-rank test on paired samples: (W, p)."""
+    if np.all(x == y):  # scipy raises when every pair is identical, e.g. the shared initial populations
+        return 0.0, 1.0
+    result = wilcoxon(x, y, alternative="two-sided")
+    return float(result.statistic), float(result.pvalue)
+
+
 def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
-    """Compare independent EA1 and EA2 runs on fitness and final population diversity."""
+    """Compare EA1 and EA2 runs, paired by seed, on fitness and on population diversity at fixed generations."""
     names = {s: [n for n in runs if SERIES[n]["scenario"] == s] for s in ("ea1", "ea2")}
     if any(len(found) != 1 for found in names.values()):
         print("\n[statistics] exactly one EA1 series and one EA2 series are required; skipping comparison "
@@ -272,24 +283,37 @@ def compare_ea1_ea2(runs: dict[str, dict[int, list[dict]]]) -> None:
         return
     name1, name2 = names["ea1"][0], names["ea2"][0]
 
-    ea1 = np.array([min(row["best"] for row in run) for run in runs[name1].values()])
-    ea2 = np.array([min(row["best"] for row in run) for run in runs[name2].values()])
-    statistic, p_value = mannwhitneyu(ea1, ea2, alternative="two-sided", method="auto")
-    print("\n=== EA1 vs EA2: best-ever fitness (two-sided Mann–Whitney U) ===")
+    # EA1 and EA2 start from the same initial population for a given seed, so runs are paired by seed.
+    seeds = sorted(set(runs[name1]) & set(runs[name2]))
+    if not seeds:
+        print("\n[statistics] EA1 and EA2 share no seeds; skipping the paired comparison")
+        return
+    ea1 = np.array([min(row["best"] for row in runs[name1][s]) for s in seeds])
+    ea2 = np.array([min(row["best"] for row in runs[name2][s]) for s in seeds])
+    statistic, p_value = signed_rank(ea1, ea2)
+    print("\n=== EA1 vs EA2: best-ever fitness (two-sided Wilcoxon signed-rank, paired by seed) ===")
     print(f"{name1}: n={ea1.size}, mean={ea1.mean():.4f} ± {std(ea1):.4f}")
     print(f"{name2}: n={ea2.size}, mean={ea2.mean():.4f} ± {std(ea2):.4f}")
-    print(f"U={statistic:.1f}, p={p_value:.4g}")
+    print(f"W={statistic:.1f}, p={p_value:.4g}")
 
-    # Each final diversity value belongs to one independent run, so the same
-    # two-sided Mann--Whitney U test applies without treating generations as
-    # extra observations.
-    diversity1 = np.array([run[-1]["diversity"] for run in runs[name1].values()])
-    diversity2 = np.array([run[-1]["diversity"] for run in runs[name2].values()])
-    statistic, p_value = mannwhitneyu(diversity1, diversity2, alternative="two-sided", method="auto")
-    print("\n=== EA1 vs EA2: final population diversity (two-sided Mannâ€“Whitney U) ===")
-    print(f"{name1}: n={diversity1.size}, mean={diversity1.mean():.4f} Â± {std(diversity1):.4f}")
-    print(f"{name2}: n={diversity2.size}, mean={diversity2.mean():.4f} Â± {std(diversity2):.4f}")
-    print(f"U={statistic:.1f}, p={p_value:.4g}")
+    # At each tested generation every seed contributes one pair of diversity values. Several tests
+    # are made, so each p-value is judged against a Bonferroni threshold.
+    threshold = 0.05 / len(DIVERSITY_TEST_GENERATIONS)
+    print("\n=== EA1 vs EA2: population diversity per generation (two-sided Wilcoxon signed-rank, paired by seed) ===")
+    print(f"{len(DIVERSITY_TEST_GENERATIONS)} tests, Bonferroni threshold p < {threshold:.4f}")
+    print(f"{'gen':>4}  {name1 + ' mean ± std':>24}  {name2 + ' mean ± std':>24}  {'W':>7}  {'p':>9}  significant")
+    for gen in DIVERSITY_TEST_GENERATIONS:
+        # Row i of an EA run is generation i; a seed is left out if either run ended before `gen`.
+        paired = [s for s in seeds if len(runs[name1][s]) > gen and len(runs[name2][s]) > gen]
+        if not paired:
+            print(f"{gen:>4}  no seed reaches this generation in both EAs, skipped")
+            continue
+        diversity1 = np.array([runs[name1][s][gen]["diversity"] for s in paired])
+        diversity2 = np.array([runs[name2][s][gen]["diversity"] for s in paired])
+        statistic, p_value = signed_rank(diversity1, diversity2)
+        print(f"{gen:>4}  {f'{diversity1.mean():.4f} ± {std(diversity1):.4f} (n={diversity1.size})':>24}  "
+              f"{f'{diversity2.mean():.4f} ± {std(diversity2):.4f} (n={diversity2.size})':>24}  "
+              f"{statistic:>7.1f}  {p_value:>9.3g}  {'yes' if p_value < threshold else 'no'}")
     if min(ea1.size, ea2.size) < 5:
         print("Warning: the assignment requires at least five independent runs per condition.")
 
